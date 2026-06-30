@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  opencrafter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: opencrafter:latest
+    container_name: opencrafter
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PORT=3000
+      - DATABASE_DIR=/app/data
+      - NODE_ENV=production

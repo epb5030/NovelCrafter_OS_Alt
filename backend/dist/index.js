@@ -1,0 +1,437 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = __importDefault(require("express"));
+const cors_1 = __importDefault(require("cors"));
+const database_1 = require("./config/database");
+const ai_service_1 = require("./services/ai.service");
+const path_1 = __importDefault(require("path"));
+const app = (0, express_1.default)();
+const PORT = process.env.PORT || 3000;
+app.use((0, cors_1.default)());
+app.use(express_1.default.json({ limit: '50mb' })); // Support larger payloads for book imports/exports
+// Initialize Database connection on start
+(0, database_1.getDatabase)()
+    .then(() => console.log('SQLite database initialized successfully.'))
+    .catch(err => console.error('Failed to initialize database:', err));
+// ==========================================
+// 1. PROJECTS API
+// ==========================================
+// Get all projects
+app.get('/api/projects', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const projects = await db.all('SELECT * FROM projects ORDER BY updated_at DESC');
+        res.json(projects);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Get single project details
+app.get('/api/projects/:id', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const project = await db.get('SELECT * FROM projects WHERE id = ?', req.params.id);
+        if (!project) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+        res.json(project);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Create new project
+app.post('/api/projects', async (req, res) => {
+    const { title, summary, genre } = req.body;
+    if (!title) {
+        return res.status(400).json({ error: 'Title is required' });
+    }
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const result = await db.run('INSERT INTO projects (title, summary, genre) VALUES (?, ?, ?)', title, summary || '', genre || '');
+        const newProject = await db.get('SELECT * FROM projects WHERE id = ?', result.lastID);
+        res.status(201).json(newProject);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Update project
+app.put('/api/projects/:id', async (req, res) => {
+    const { title, summary, genre } = req.body;
+    if (!title) {
+        return res.status(400).json({ error: 'Title is required' });
+    }
+    try {
+        const db = await (0, database_1.getDatabase)();
+        await db.run('UPDATE projects SET title = ?, summary = ?, genre = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', title, summary || '', genre || '', req.params.id);
+        const updated = await db.get('SELECT * FROM projects WHERE id = ?', req.params.id);
+        res.json(updated);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Delete project
+app.delete('/api/projects/:id', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        // Foreign keys cascade will delete related codex and outline items automatically
+        await db.run('DELETE FROM projects WHERE id = ?', req.params.id);
+        res.json({ success: true, message: `Project ${req.params.id} deleted successfully.` });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Export project to JSON file
+app.get('/api/projects/:id/export', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const projectId = req.params.id;
+        const project = await db.get('SELECT * FROM projects WHERE id = ?', projectId);
+        if (!project) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+        const codex = await db.all('SELECT * FROM codex_entries WHERE project_id = ?', projectId);
+        const outline = await db.all('SELECT * FROM outline_elements WHERE project_id = ? ORDER BY position ASC', projectId);
+        // Fetch scene contents
+        const scenesWithContent = [];
+        for (const item of outline) {
+            if (item.type === 'scene') {
+                const contentRow = await db.get('SELECT content FROM scene_contents WHERE scene_id = ?', item.id);
+                scenesWithContent.push({
+                    scene_id: item.id,
+                    content: contentRow ? contentRow.content : ''
+                });
+            }
+        }
+        res.json({
+            project,
+            codex,
+            outline,
+            scene_contents: scenesWithContent
+        });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Import project from JSON file
+app.post('/api/projects/import', async (req, res) => {
+    const { project, codex, outline, scene_contents } = req.body;
+    if (!project || !project.title) {
+        return res.status(400).json({ error: 'Invalid project data file' });
+    }
+    try {
+        const db = await (0, database_1.getDatabase)();
+        await db.run('BEGIN TRANSACTION');
+        // 1. Create project
+        const projResult = await db.run('INSERT INTO projects (title, summary, genre) VALUES (?, ?, ?)', `${project.title} (Imported)`, project.summary || '', project.genre || '');
+        const newProjectId = projResult.lastID;
+        // Mapping old IDs to new IDs
+        const codexIdMap = {};
+        const outlineIdMap = {};
+        // 2. Insert Codex Entries
+        if (Array.isArray(codex)) {
+            for (const entry of codex) {
+                const codexRes = await db.run(`INSERT INTO codex_entries (project_id, name, aliases, category, description, notes) 
+           VALUES (?, ?, ?, ?, ?, ?)`, newProjectId, entry.name, entry.aliases || '', entry.category, entry.description || '', entry.notes || '');
+                codexIdMap[entry.id] = codexRes.lastID;
+            }
+        }
+        // 3. Insert Outline Elements (Acts first, then chapters, then scenes)
+        // To handle parenting correctly, let's sort elements by their hierarchy type: act -> chapter -> scene
+        const typeOrder = { act: 1, chapter: 2, scene: 3 };
+        const sortedOutline = [...(outline || [])].sort((a, b) => typeOrder[a.type] - typeOrder[b.type]);
+        for (const elem of sortedOutline) {
+            // Map parent ID
+            const newParentId = elem.parent_id ? (outlineIdMap[elem.parent_id] || null) : null;
+            // Map codex IDs in metadata
+            let newMetadata = '[]';
+            if (elem.metadata) {
+                try {
+                    const oldMetaIds = JSON.parse(elem.metadata);
+                    const newMetaIds = oldMetaIds.map(id => codexIdMap[id]).filter(Boolean);
+                    newMetadata = JSON.stringify(newMetaIds);
+                }
+                catch (_) { }
+            }
+            const outRes = await db.run(`INSERT INTO outline_elements (project_id, parent_id, type, title, position, summary, status, metadata) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, newProjectId, newParentId, elem.type, elem.title, elem.position, elem.summary || '', elem.status || 'todo', newMetadata);
+            outlineIdMap[elem.id] = outRes.lastID;
+        }
+        // 4. Insert Scene Contents
+        if (Array.isArray(scene_contents)) {
+            for (const contentItem of scene_contents) {
+                const newSceneId = outlineIdMap[contentItem.scene_id];
+                if (newSceneId) {
+                    await db.run('INSERT INTO scene_contents (scene_id, content) VALUES (?, ?)', newSceneId, contentItem.content || '');
+                }
+            }
+        }
+        await db.run('COMMIT');
+        const importedProject = await db.get('SELECT * FROM projects WHERE id = ?', newProjectId);
+        res.status(201).json(importedProject);
+    }
+    catch (error) {
+        try {
+            const db = await (0, database_1.getDatabase)();
+            await db.run('ROLLBACK');
+        }
+        catch (_) { }
+        res.status(500).json({ error: error.message });
+    }
+});
+// ==========================================
+// 2. CODEX API
+// ==========================================
+// Get Codex Entries for project
+app.get('/api/projects/:projectId/codex', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const codex = await db.all('SELECT * FROM codex_entries WHERE project_id = ? ORDER BY name ASC', req.params.projectId);
+        res.json(codex);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Create Codex Entry
+app.post('/api/projects/:projectId/codex', async (req, res) => {
+    const { name, aliases, category, description, notes } = req.body;
+    if (!name || !category) {
+        return res.status(400).json({ error: 'Name and Category are required' });
+    }
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const result = await db.run(`INSERT INTO codex_entries (project_id, name, aliases, category, description, notes) 
+       VALUES (?, ?, ?, ?, ?, ?)`, req.params.projectId, name, aliases || '', category, description || '', notes || '');
+        const newEntry = await db.get('SELECT * FROM codex_entries WHERE id = ?', result.lastID);
+        // Trigger update project timestamp
+        await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', req.params.projectId);
+        res.status(201).json(newEntry);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Update Codex Entry
+app.put('/api/projects/:projectId/codex/:id', async (req, res) => {
+    const { name, aliases, category, description, notes } = req.body;
+    if (!name || !category) {
+        return res.status(400).json({ error: 'Name and Category are required' });
+    }
+    try {
+        const db = await (0, database_1.getDatabase)();
+        await db.run(`UPDATE codex_entries 
+       SET name = ?, aliases = ?, category = ?, description = ?, notes = ?, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = ? AND project_id = ?`, name, aliases || '', category, description || '', notes || '', req.params.id, req.params.projectId);
+        // Update project timestamp
+        await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', req.params.projectId);
+        const updated = await db.get('SELECT * FROM codex_entries WHERE id = ?', req.params.id);
+        res.json(updated);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Delete Codex Entry
+app.delete('/api/projects/:projectId/codex/:id', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        await db.run('DELETE FROM codex_entries WHERE id = ? AND project_id = ?', req.params.id, req.params.projectId);
+        // Update project timestamp
+        await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', req.params.projectId);
+        res.json({ success: true, message: `Codex entry ${req.params.id} deleted.` });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// ==========================================
+// 3. OUTLINE / PLANNERS API
+// ==========================================
+// Get Outline elements for project
+app.get('/api/projects/:projectId/outline', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const elements = await db.all('SELECT * FROM outline_elements WHERE project_id = ? ORDER BY position ASC', req.params.projectId);
+        res.json(elements);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Create Outline Element (Act, Chapter, Scene)
+app.post('/api/projects/:projectId/outline', async (req, res) => {
+    const { parent_id, type, title, position, summary, status } = req.body;
+    if (!type || !title) {
+        return res.status(400).json({ error: 'Type and Title are required' });
+    }
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const result = await db.run(`INSERT INTO outline_elements (project_id, parent_id, type, title, position, summary, status, metadata) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, req.params.projectId, parent_id || null, type, title, position || 0, summary || '', status || 'todo', '[]');
+        const newElement = await db.get('SELECT * FROM outline_elements WHERE id = ?', result.lastID);
+        // If type is scene, automatically initialize its empty text content
+        if (type === 'scene') {
+            await db.run('INSERT OR IGNORE INTO scene_contents (scene_id, content) VALUES (?, ?)', result.lastID, '');
+        }
+        // Update project timestamp
+        await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', req.params.projectId);
+        res.status(201).json(newElement);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Update Outline Element
+app.put('/api/projects/:projectId/outline/:id', async (req, res) => {
+    const { parent_id, title, position, summary, status, metadata } = req.body;
+    try {
+        const db = await (0, database_1.getDatabase)();
+        // Construct dynamic updates based on what was passed
+        await db.run(`UPDATE outline_elements 
+       SET parent_id = ?, title = ?, position = ?, summary = ?, status = ?, metadata = ? 
+       WHERE id = ? AND project_id = ?`, parent_id !== undefined ? parent_id : null, title, position || 0, summary || '', status || 'todo', metadata || '[]', req.params.id, req.params.projectId);
+        // Update project timestamp
+        await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', req.params.projectId);
+        const updated = await db.get('SELECT * FROM outline_elements WHERE id = ?', req.params.id);
+        res.json(updated);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Delete Outline Element
+app.delete('/api/projects/:projectId/outline/:id', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        // Cascade constraints on outline_elements parent_id or project_id will handle nested deletions
+        await db.run('DELETE FROM outline_elements WHERE id = ? AND project_id = ?', req.params.id, req.params.projectId);
+        // Update project timestamp
+        await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', req.params.projectId);
+        res.json({ success: true, message: `Outline element ${req.params.id} deleted.` });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// ==========================================
+// 4. EDITOR MANUSCRIPT API
+// ==========================================
+// Get scene content
+app.get('/api/scenes/:sceneId/content', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        let contentRow = await db.get('SELECT * FROM scene_contents WHERE scene_id = ?', req.params.sceneId);
+        // Auto-create blank page if somehow missing
+        if (!contentRow) {
+            await db.run('INSERT INTO scene_contents (scene_id, content) VALUES (?, ?)', req.params.sceneId, '');
+            contentRow = { scene_id: Number(req.params.sceneId), content: '', last_saved_at: new Date().toISOString() };
+        }
+        res.json(contentRow);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Save scene content
+app.put('/api/scenes/:sceneId/content', async (req, res) => {
+    const { content } = req.body;
+    try {
+        const db = await (0, database_1.getDatabase)();
+        await db.run('INSERT INTO scene_contents (scene_id, content, last_saved_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(scene_id) DO UPDATE SET content = excluded.content, last_saved_at = CURRENT_TIMESTAMP', req.params.sceneId, content || '');
+        // Fetch associated project to update project updated_at timestamp
+        const element = await db.get('SELECT project_id FROM outline_elements WHERE id = ?', req.params.sceneId);
+        if (element) {
+            await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', element.project_id);
+        }
+        res.json({ success: true, last_saved_at: new Date().toISOString() });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// ==========================================
+// 5. SETTINGS API
+// ==========================================
+// Get settings
+app.get('/api/settings', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const rows = await db.all('SELECT * FROM settings');
+        const settingsObj = {};
+        rows.forEach(row => {
+            settingsObj[row.key] = row.value;
+        });
+        res.json(settingsObj);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Save settings bulk
+app.post('/api/settings', async (req, res) => {
+    const settingsData = req.body; // Expects object e.g. { openai_api_key: "...", ... }
+    try {
+        const db = await (0, database_1.getDatabase)();
+        await db.run('BEGIN TRANSACTION');
+        for (const [key, value] of Object.entries(settingsData)) {
+            await db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, String(value));
+        }
+        await db.run('COMMIT');
+        res.json({ success: true, message: 'Settings saved successfully.' });
+    }
+    catch (error) {
+        try {
+            const db = await (0, database_1.getDatabase)();
+            await db.run('ROLLBACK');
+        }
+        catch (_) { }
+        res.status(500).json({ error: error.message });
+    }
+});
+// ==========================================
+// 6. AI DISPATCH API
+// ==========================================
+app.post('/api/ai/generate', async (req, res) => {
+    const { sceneId, prompt, history, action, selection } = req.body;
+    if (!sceneId) {
+        return res.status(400).json({ error: 'sceneId is required' });
+    }
+    try {
+        const generatedText = await ai_service_1.AIService.generate({
+            sceneId,
+            prompt,
+            history,
+            action,
+            selection
+        });
+        res.json({ text: generatedText });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// ==========================================
+// PRODUCTION FRONTEND STATIC SERVING
+// ==========================================
+const frontendBuildPath = path_1.default.join(__dirname, '../../frontend/dist');
+app.use(express_1.default.static(frontendBuildPath));
+// For SPA routing in production, serve index.html for all non-api routes
+app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+        return next();
+    }
+    res.sendFile(path_1.default.join(frontendBuildPath, 'index.html'));
+});
+// Start server
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
