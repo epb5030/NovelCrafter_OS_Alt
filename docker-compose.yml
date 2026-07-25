@@ -9,10 +9,10 @@ services:
     container_name: opencrafter
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3005:3005"
     volumes:
       - ./data:/app/data
     environment:
-      - PORT=3000
+      - PORT=3005
       - DATABASE_DIR=/app/data
       - NODE_ENV=production

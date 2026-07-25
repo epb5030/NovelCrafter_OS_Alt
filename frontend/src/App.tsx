@@ -7,7 +7,7 @@ import { OutlinePlanner } from './components/OutlinePlanner';
 import { CodexManager } from './components/CodexManager';
 import { Settings } from './components/Settings';
 
-const API_BASE = import.meta.env.DEV ? 'http://localhost:3000/api' : '/api';
+const API_BASE = import.meta.env.DEV ? 'http://localhost:3005/api' : '/api';
 
 function App() {
   const [activeProjectId, setActiveProjectId] = useState<number | null>(null);

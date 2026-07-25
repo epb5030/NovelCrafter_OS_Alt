@@ -29,8 +29,8 @@ COPY --from=backend-builder /app/backend/package.json ./backend/package.json
 # Copy frontend static build assets
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
-EXPOSE 3000
-ENV PORT=3000
+EXPOSE 3005
+ENV PORT=3005
 ENV DATABASE_DIR=/app/data
 ENV NODE_ENV=production
 

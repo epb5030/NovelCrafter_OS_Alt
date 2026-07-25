@@ -9,7 +9,7 @@ const database_1 = require("./config/database");
 const ai_service_1 = require("./services/ai.service");
 const path_1 = __importDefault(require("path"));
 const app = (0, express_1.default)();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3005;
 app.use((0, cors_1.default)());
 app.use(express_1.default.json({ limit: '50mb' })); // Support larger payloads for book imports/exports
 // Initialize Database connection on start
