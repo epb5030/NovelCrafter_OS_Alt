@@ -11,20 +11,35 @@ export interface GenerationOptions {
   history?: ChatMessage[]; // Optional chat history
   action?: 'continue' | 'chat' | 'rewrite' | 'summarize'; // Action type
   selection?: string;     // Text selection (for rewrite/summarize)
+  // Optional runtime overrides
+  styleOverrides?: {
+    pov?: string;
+    tense?: string;
+    tone?: string;
+  };
+}
+
+interface PreparedLLMContext {
+  provider: string;
+  endpoint: string;
+  apiKey: string;
+  model: string;
+  messages: ChatMessage[];
+  systemPrompt: string;
 }
 
 export class AIService {
-  private static async getSetting(key: string): Promise<string> {
+  public static async getSetting(key: string): Promise<string> {
     const db = await getDatabase();
     const row = await db.get('SELECT value FROM settings WHERE key = ?', key);
     return row ? row.value : '';
   }
 
-  public static async generate(options: GenerationOptions): Promise<string> {
+  private static async prepareContext(options: GenerationOptions): Promise<PreparedLLMContext> {
     const db = await getDatabase();
 
-    // 1. Get Settings
-    const activeProvider = await this.getSetting('active_provider');
+    // 1. Provider & Model Settings
+    const activeProvider = await this.getSetting('active_provider') || 'ollama';
     
     let apiKey = '';
     let model = '';
@@ -70,21 +85,13 @@ export class AIService {
     const sceneText = sceneContentRow ? sceneContentRow.content : '';
 
     // 3. Extract Codex entries relevant to the scene
-    // First, get all Codex entries for this project
     const codexEntries = await db.all('SELECT * FROM codex_entries WHERE project_id = ?', scene.project_id);
-    
-    // We filter codex entries based on whether they are mentioned in the scene text OR in the scene metadata.
     const metadataIds: number[] = JSON.parse(scene.metadata || '[]');
     const textToLower = sceneText.toLowerCase();
 
     const activeEntries = codexEntries.filter(entry => {
-      // Explicitly attached
       if (metadataIds.includes(entry.id)) return true;
-      
-      // Implicitly detected by name
       if (textToLower.includes(entry.name.toLowerCase())) return true;
-      
-      // Implicitly detected by aliases
       if (entry.aliases) {
         const aliasList = entry.aliases.split(',').map((a: string) => a.trim().toLowerCase());
         return aliasList.some((alias: string) => alias && textToLower.includes(alias));
@@ -92,10 +99,9 @@ export class AIService {
       return false;
     });
 
-    // 4. Construct System Prompt & Codex Context
     let codexContext = '';
     if (activeEntries.length > 0) {
-      codexContext = 'STORY CODEX REFERENCE (World Lore):\n';
+      codexContext = 'STORY CODEX REFERENCE (World Lore & Entities):\n';
       activeEntries.forEach(entry => {
         codexContext += `- [${entry.category.toUpperCase()}] ${entry.name}`;
         if (entry.aliases) codexContext += ` (Aliases: ${entry.aliases})`;
@@ -105,6 +111,33 @@ export class AIService {
       });
     }
 
+    // 4. Style & Constraint Settings (POV, Tense, Tone, Custom Guidelines)
+    const povSetting = options.styleOverrides?.pov || await this.getSetting('writing_pov') || 'third_limited';
+    const tenseSetting = options.styleOverrides?.tense || await this.getSetting('writing_tense') || 'past';
+    const toneSetting = options.styleOverrides?.tone || await this.getSetting('writing_tone') || 'Balanced Narrative';
+    const customRules = await this.getSetting('writing_custom_rules');
+
+    const povDescriptions: Record<string, string> = {
+      first_person: "First Person Point of View ('I', 'me', 'we'). Stick to the narrator's direct sensory experience and inner thoughts.",
+      third_limited: "Third Person Limited Point of View ('he', 'she', 'they'). Adhere strictly to the active POV character's perspective without head-hopping.",
+      third_omniscient: "Third Person Omniscient Point of View. The narrator has an overarching, all-knowing perspective.",
+      second_person: "Second Person Point of View ('you')."
+    };
+
+    const tenseDescriptions: Record<string, string> = {
+      past: "Past Tense (e.g., 'walked', 'said', 'felt').",
+      present: "Present Tense (e.g., 'walks', 'says', 'feels')."
+    };
+
+    const styleInstructions = `
+Writing Style & Narrative Constraints:
+- Point of View: ${povDescriptions[povSetting] || povSetting}
+- Tense: ${tenseDescriptions[tenseSetting] || tenseSetting}
+- Tone & Atmosphere: ${toneSetting}
+${customRules ? `- Author Custom Guidelines: ${customRules}` : ''}
+`;
+
+    // 5. System Prompt Construction
     const systemPrompt = `You are a professional co-writer assistant helping an author draft their manuscript.
 Story Details:
 - Project Title: ${scene.project_title}
@@ -112,61 +145,86 @@ Story Details:
 - Active Scene: ${scene.title}
 - Active Scene Outline/Summary: ${scene.summary || 'No scene summary provided.'}
 
+${styleInstructions}
 ${codexContext}
 Guidelines:
-1. Conform strictly to the style, pacing, and vocabulary established in the manuscript.
+1. Conform strictly to the style, pacing, tone, POV, tense, and vocabulary established.
 2. Adhere to character traits, locations, and lore in the Story Codex.
 3. Be helpful, imaginative, and focused on writing high-quality narrative prose. Avoid writing meta-commentary, lists, or intros/outros unless specifically requested. Output raw story prose directly.`;
 
-    // 5. Structure the messages payload based on action type
+    // 6. Structure Messages Payload based on action type
     const messages: ChatMessage[] = [];
 
     if (options.action === 'continue') {
+      const templateContinue = await this.getSetting('prompt_template_continue');
+      const continueInstruction = templateContinue || 
+        'Please continue writing the next section or paragraph of the scene naturally. Do not repeat what has been written. Output only the new narrative prose.';
+
       messages.push({ role: 'system', content: systemPrompt });
       messages.push({
         role: 'user',
-        content: `Here is the current manuscript draft for the scene:\n\n"""\n${sceneText}\n"""\n\nPlease continue writing the next section or paragraph of the scene naturally. Do not repeat what has been written. Output only the new narrative prose.`
+        content: `Here is the current manuscript draft for the scene:\n\n"""\n${sceneText}\n"""\n\n${continueInstruction}`
       });
     } else if (options.action === 'rewrite') {
+      const templateRewrite = await this.getSetting('prompt_template_rewrite');
+      const customInstruction = options.prompt || templateRewrite || 'Improve flow, imagery, and pacing while preserving story meaning';
+
       messages.push({ role: 'system', content: systemPrompt });
       messages.push({
         role: 'user',
-        content: `Here is the current scene manuscript:\n\n"""\n${sceneText}\n"""\n\nSpecific text selected to rewrite:\n"${options.selection}"\n\nInstructions for rewrite: ${options.prompt || 'Improve flow and descriptions'}.\n\nOutput only the rewritten prose to replace the selection.`
+        content: `Here is the current scene manuscript:\n\n"""\n${sceneText}\n"""\n\nSpecific text selected to rewrite:\n"${options.selection}"\n\nInstructions for rewrite: ${customInstruction}.\n\nOutput only the rewritten prose to replace the selection.`
       });
     } else if (options.action === 'summarize') {
-      messages.push({ role: 'system', content: 'You are a helper that summarizes story scenes.' });
+      messages.push({ role: 'system', content: 'You are a helper that summarizes story scenes concisely into plot cards.' });
       messages.push({
         role: 'user',
-        content: `Summarize the following manuscript text:\n\n"""\n${options.selection || sceneText}\n"""`
+        content: `Summarize the key events, revelations, and emotional beats in the following manuscript text:\n\n"""\n${options.selection || sceneText}\n"""`
       });
     } else {
       // Default: 'chat' action
       messages.push({ role: 'system', content: systemPrompt });
       if (options.history && options.history.length > 0) {
-        // Filter history to ensure format compatibility and append
         options.history.forEach(msg => {
           messages.push({ role: msg.role, content: msg.content });
         });
       }
-      // Add current user prompt
       messages.push({
         role: 'user',
         content: `${options.prompt}\n\n(Current scene manuscript for your reference:)\n"""\n${sceneText.slice(-3000)}\n"""`
       });
     }
 
-    // 6. Make request to provider
-    return await this.callLLM(activeProvider, endpoint, apiKey, model, messages, systemPrompt);
+    return {
+      provider: activeProvider,
+      endpoint,
+      apiKey,
+      model,
+      messages,
+      systemPrompt
+    };
   }
 
-  private static async callLLM(
-    provider: string,
-    endpoint: string,
-    apiKey: string,
-    model: string,
-    messages: ChatMessage[],
-    systemPrompt: string
+  /**
+   * Non-streaming fallback generation
+   */
+  public static async generate(options: GenerationOptions): Promise<string> {
+    let fullText = '';
+    await this.generateStream(options, chunk => {
+      fullText += chunk;
+    });
+    return fullText;
+  }
+
+  /**
+   * Streaming generation supporting Ollama, OpenAI, OpenRouter, and Anthropic
+   */
+  public static async generateStream(
+    options: GenerationOptions,
+    onChunk: (chunk: string) => void,
+    signal?: AbortSignal
   ): Promise<string> {
+    const { provider, endpoint, apiKey, model, messages, systemPrompt } = await this.prepareContext(options);
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
     };
@@ -178,20 +236,19 @@ Guidelines:
       body = {
         model,
         messages,
-        temperature: 0.7
+        temperature: 0.7,
+        stream: true
       };
     } else if (provider === 'anthropic') {
       headers['x-api-key'] = apiKey;
       headers['anthropic-version'] = '2023-06-01';
       
-      // Anthropic messages cannot contain 'system' role messages.
-      // We extract the first system prompt if it exists, or use the generated system prompt.
       const systemMessage = messages.find(m => m.role === 'system');
       const anthropicSystem = systemMessage ? systemMessage.content : systemPrompt;
       const anthropicMessages = messages
         .filter(m => m.role !== 'system')
         .map(m => ({
-          role: m.role === 'assistant' ? 'assistant' as const : 'user' as const,
+          role: m.role === 'assistant' ? ('assistant' as const) : ('user' as const),
           content: m.content
         }));
 
@@ -200,7 +257,8 @@ Guidelines:
         system: anthropicSystem,
         messages: anthropicMessages,
         max_tokens: 4000,
-        temperature: 0.7
+        temperature: 0.7,
+        stream: true
       };
     } else if (provider === 'openrouter') {
       headers['Authorization'] = `Bearer ${apiKey}`;
@@ -209,26 +267,29 @@ Guidelines:
       body = {
         model,
         messages,
-        temperature: 0.7
+        temperature: 0.7,
+        stream: true
       };
     } else {
       // Ollama
-      // Ollama /api/chat expects: { model: string, messages: Array<{role, content}>, stream: false }
       body = {
         model,
         messages: messages.map(m => ({ role: m.role, content: m.content })),
-        stream: false,
+        stream: true,
         options: {
           temperature: 0.7
         }
       };
     }
 
+    let fullAccumulatedText = '';
+
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers,
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal
       });
 
       if (!response.ok) {
@@ -236,20 +297,96 @@ Guidelines:
         throw new Error(`AI Provider returned error [Status ${response.status}]: ${errorText}`);
       }
 
-      const data = await response.json();
-
-      // Extract result depending on the provider structure
-      if (provider === 'openai' || provider === 'openrouter') {
-        return data.choices?.[0]?.message?.content || '';
-      } else if (provider === 'anthropic') {
-        return data.content?.[0]?.text || '';
-      } else {
-        // Ollama
-        return data.message?.content || '';
+      if (!response.body) {
+        throw new Error('Response body is null, cannot stream from AI provider.');
       }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+
+      while (true) {
+        if (signal?.aborted) {
+          reader.cancel();
+          break;
+        }
+
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        // Retain uncompleted line in buffer
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+
+          // 1. Ollama format: newline-delimited JSON objects
+          if (provider === 'ollama') {
+            try {
+              const parsed = JSON.parse(trimmed);
+              if (parsed.message?.content) {
+                const textChunk = parsed.message.content;
+                fullAccumulatedText += textChunk;
+                onChunk(textChunk);
+              }
+            } catch (_) {
+              // Partial JSON or heartbeat line
+            }
+          }
+          // 2. Anthropic SSE format
+          else if (provider === 'anthropic') {
+            if (trimmed.startsWith('data:')) {
+              const jsonStr = trimmed.replace(/^data:\s*/, '');
+              try {
+                const parsed = JSON.parse(jsonStr);
+                if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                  const textChunk = parsed.delta.text;
+                  fullAccumulatedText += textChunk;
+                  onChunk(textChunk);
+                }
+              } catch (_) {}
+            }
+          }
+          // 3. OpenAI & OpenRouter SSE format
+          else {
+            if (trimmed.startsWith('data:')) {
+              const jsonStr = trimmed.replace(/^data:\s*/, '');
+              if (jsonStr === '[DONE]') continue;
+              try {
+                const parsed = JSON.parse(jsonStr);
+                const textChunk = parsed.choices?.[0]?.delta?.content;
+                if (textChunk) {
+                  fullAccumulatedText += textChunk;
+                  onChunk(textChunk);
+                }
+              } catch (_) {}
+            }
+          }
+        }
+      }
+
+      // Process any remaining bytes in buffer
+      if (buffer.trim() && provider === 'ollama') {
+        try {
+          const parsed = JSON.parse(buffer.trim());
+          if (parsed.message?.content) {
+            const textChunk = parsed.message.content;
+            fullAccumulatedText += textChunk;
+            onChunk(textChunk);
+          }
+        } catch (_) {}
+      }
+
+      return fullAccumulatedText;
     } catch (error: any) {
-      console.error(`Error communicating with LLM (${provider}):`, error);
-      throw new Error(`LLM Error: ${error.message || error}`);
+      if (signal?.aborted || error.name === 'AbortError') {
+        return fullAccumulatedText;
+      }
+      console.error(`Error communicating with LLM stream (${provider}):`, error);
+      throw new Error(`LLM Streaming Error: ${error.message || error}`);
     }
   }
 }

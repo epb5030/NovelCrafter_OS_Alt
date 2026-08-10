@@ -292,6 +292,91 @@ export const Settings: React.FC<SettingsProps> = ({ apiBase, onSettingsSaved }) 
           </div>
         )}
 
+        {/* 5. Writing Style & Prompt Studio */}
+        <div className="glass-panel" style={{ padding: '20px', border: '1px solid var(--border-light)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+            <Sparkles size={18} style={{ color: 'var(--primary)' }} />
+            <h3 style={{ color: '#ffffff', fontSize: '16px' }}>Writing Style & Prompt Studio</h3>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+              {/* Point of View */}
+              <div>
+                <label className="label">Default Point of View (POV)</label>
+                <select
+                  value={settings.writing_pov || 'third_limited'}
+                  onChange={(e) => updateSetting('writing_pov', e.target.value)}
+                  className="input"
+                >
+                  <option value="third_limited">3rd Person Limited (He/She/They - Deep POV)</option>
+                  <option value="first_person">1st Person (I / Me / We)</option>
+                  <option value="third_omniscient">3rd Person Omniscient (All-knowing)</option>
+                  <option value="second_person">2nd Person (You / Your)</option>
+                </select>
+              </div>
+
+              {/* Tense */}
+              <div>
+                <label className="label">Default Tense</label>
+                <select
+                  value={settings.writing_tense || 'past'}
+                  onChange={(e) => updateSetting('writing_tense', e.target.value)}
+                  className="input"
+                >
+                  <option value="past">Past Tense (walked, said, stared)</option>
+                  <option value="present">Present Tense (walks, says, stares)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Tone & Atmosphere */}
+            <div>
+              <label className="label">Tone & Atmosphere Preset</label>
+              <select
+                value={settings.writing_tone || 'Balanced Narrative'}
+                onChange={(e) => updateSetting('writing_tone', e.target.value)}
+                className="input"
+              >
+                <option value="Balanced Narrative">Balanced Narrative (Polished, standard contemporary prose)</option>
+                <option value="Grimdark & Gritty">Grimdark & Gritty (Visceral, cynical, atmospheric)</option>
+                <option value="Lyrical & Atmospheric">Lyrical & Atmospheric (Poetic imagery, slow sensory build)</option>
+                <option value="Fast-Paced Action">Fast-Paced Action (Short punchy sentences, high tension)</option>
+                <option value="Humorous & Witty">Humorous & Witty (Snarky dialogue, comedic timing)</option>
+                <option value="Cozy & Whimsical">Cozy & Whimsical (Warm, gentle, charming world details)</option>
+              </select>
+            </div>
+
+            {/* Custom Guidelines */}
+            <div>
+              <label className="label">Custom Author Guidelines & Negative Rules</label>
+              <textarea
+                value={settings.writing_custom_rules || ''}
+                onChange={(e) => updateSetting('writing_custom_rules', e.target.value)}
+                className="input"
+                rows={3}
+                placeholder="e.g. Avoid clichés, prioritize sensory smell/sound details, keep dialogue subtext-heavy without excessive adverbs."
+                style={{ resize: 'vertical' }}
+              />
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                Injected into all Co-Writer prompts and chat instructions automatically.
+              </span>
+            </div>
+
+            {/* Custom Continue Template */}
+            <div>
+              <label className="label">Custom "Continue Writing" Instruction (Optional)</label>
+              <input
+                type="text"
+                value={settings.prompt_template_continue || ''}
+                onChange={(e) => updateSetting('prompt_template_continue', e.target.value)}
+                className="input"
+                placeholder="Leave blank for standard default continue prompt"
+              />
+            </div>
+          </div>
+        </div>
+
         {/* Submit Actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '10px' }}>
           <button 
@@ -300,7 +385,7 @@ export const Settings: React.FC<SettingsProps> = ({ apiBase, onSettingsSaved }) 
             disabled={saving}
             style={{ padding: '10px 24px' }}
           >
-            <Save size={16} /> {saving ? 'Saving...' : 'Save AI Configuration'}
+            <Save size={16} /> {saving ? 'Saving...' : 'Save Configuration'}
           </button>
           
           {savedMessage && (
@@ -314,7 +399,7 @@ export const Settings: React.FC<SettingsProps> = ({ apiBase, onSettingsSaved }) 
                 animation: 'fadeIn 0.2s ease-out'
               }}
             >
-              <CheckCircle2 size={16} /> Configuration saved and loaded.
+              <CheckCircle2 size={16} /> Configuration saved and applied!
             </div>
           )}
         </div>

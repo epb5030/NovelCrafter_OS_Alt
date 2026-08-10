@@ -359,6 +359,89 @@ app.put('/api/scenes/:sceneId/content', async (req, res) => {
     }
 });
 // ==========================================
+// 4B. SCENE SNAPSHOTS & HISTORY API
+// ==========================================
+// Get list of snapshots for a scene (metadata only, no large content body)
+app.get('/api/scenes/:sceneId/snapshots', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const snapshots = await db.all('SELECT id, scene_id, word_count, label, source, created_at FROM scene_snapshots WHERE scene_id = ? ORDER BY created_at DESC', req.params.sceneId);
+        res.json(snapshots);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Get single snapshot with full content
+app.get('/api/scenes/:sceneId/snapshots/:snapshotId', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const snapshot = await db.get('SELECT * FROM scene_snapshots WHERE id = ? AND scene_id = ?', req.params.snapshotId, req.params.sceneId);
+        if (!snapshot) {
+            return res.status(404).json({ error: 'Snapshot not found' });
+        }
+        res.json(snapshot);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Create manual or automated snapshot
+app.post('/api/scenes/:sceneId/snapshots', async (req, res) => {
+    const { content, label, source } = req.body;
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const textContent = content || '';
+        const wordCount = textContent.trim() ? textContent.trim().split(/\s+/).length : 0;
+        const result = await db.run('INSERT INTO scene_snapshots (scene_id, content, word_count, label, source) VALUES (?, ?, ?, ?, ?)', req.params.sceneId, textContent, wordCount, label || 'Manual Snapshot', source || 'manual');
+        const newSnapshot = await db.get('SELECT id, scene_id, word_count, label, source, created_at FROM scene_snapshots WHERE id = ?', result.lastID);
+        res.json(newSnapshot);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Delete snapshot
+app.delete('/api/scenes/:sceneId/snapshots/:snapshotId', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        await db.run('DELETE FROM scene_snapshots WHERE id = ? AND scene_id = ?', req.params.snapshotId, req.params.sceneId);
+        res.json({ success: true });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Restore snapshot
+app.post('/api/scenes/:sceneId/snapshots/:snapshotId/restore', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const snapshot = await db.get('SELECT * FROM scene_snapshots WHERE id = ? AND scene_id = ?', req.params.snapshotId, req.params.sceneId);
+        if (!snapshot) {
+            return res.status(404).json({ error: 'Snapshot not found' });
+        }
+        // Safety backup of current scene content before restoring
+        const currentContentRow = await db.get('SELECT content FROM scene_contents WHERE scene_id = ?', req.params.sceneId);
+        if (currentContentRow && currentContentRow.content) {
+            const curWords = currentContentRow.content.trim() ? currentContentRow.content.trim().split(/\s+/).length : 0;
+            await db.run('INSERT INTO scene_snapshots (scene_id, content, word_count, label, source) VALUES (?, ?, ?, ?, ?)', req.params.sceneId, currentContentRow.content, curWords, `Pre-Restore Safety Backup (Restoring #${snapshot.id})`, 'safety_backup');
+        }
+        // Restore content to active scene
+        await db.run(`INSERT INTO scene_contents (scene_id, content, last_saved_at) 
+       VALUES (?, ?, CURRENT_TIMESTAMP) 
+       ON CONFLICT(scene_id) DO UPDATE SET content = excluded.content, last_saved_at = CURRENT_TIMESTAMP`, req.params.sceneId, snapshot.content);
+        // Touch project updated timestamp
+        const element = await db.get('SELECT project_id FROM outline_elements WHERE id = ?', req.params.sceneId);
+        if (element) {
+            await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', element.project_id);
+        }
+        res.json({ success: true, restoredContent: snapshot.content });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// ==========================================
 // 5. SETTINGS API
 // ==========================================
 // Get settings
@@ -400,8 +483,9 @@ app.post('/api/settings', async (req, res) => {
 // ==========================================
 // 6. AI DISPATCH API
 // ==========================================
+// Standard generation (non-streaming fallback)
 app.post('/api/ai/generate', async (req, res) => {
-    const { sceneId, prompt, history, action, selection } = req.body;
+    const { sceneId, prompt, history, action, selection, styleOverrides } = req.body;
     if (!sceneId) {
         return res.status(400).json({ error: 'sceneId is required' });
     }
@@ -411,12 +495,50 @@ app.post('/api/ai/generate', async (req, res) => {
             prompt,
             history,
             action,
-            selection
+            selection,
+            styleOverrides
         });
         res.json({ text: generatedText });
     }
     catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+// Real-time Streaming Generation (SSE)
+app.post('/api/ai/generate-stream', async (req, res) => {
+    const { sceneId, prompt, history, action, selection, styleOverrides } = req.body;
+    if (!sceneId) {
+        return res.status(400).json({ error: 'sceneId is required' });
+    }
+    // Set SSE Headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.flushHeaders?.();
+    const abortController = new AbortController();
+    req.on('close', () => {
+        abortController.abort();
+    });
+    try {
+        await ai_service_1.AIService.generateStream({
+            sceneId,
+            prompt,
+            history,
+            action,
+            selection,
+            styleOverrides
+        }, (chunk) => {
+            res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
+        }, abortController.signal);
+        res.write(`data: [DONE]\n\n`);
+        res.end();
+    }
+    catch (error) {
+        if (!abortController.signal.aborted) {
+            res.write(`data: ${JSON.stringify({ error: error.message || 'Streaming failed' })}\n\n`);
+            res.end();
+        }
     }
 });
 // ==========================================

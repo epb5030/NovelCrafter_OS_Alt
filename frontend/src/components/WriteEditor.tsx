@@ -4,13 +4,22 @@ import {
   ChevronRight, 
   ChevronLeft, 
   Sparkles, 
-  Send,
-  Wand2,
-  BookOpen,
-  Info,
-  MessageSquare,
-  RefreshCw,
-  AlertCircle
+  Send, 
+  Wand2, 
+  BookOpen, 
+  Info, 
+  MessageSquare, 
+  RefreshCw, 
+  AlertCircle,
+  History,
+  Square,
+  RotateCcw,
+  Trash2,
+  Plus,
+  Sliders,
+  X,
+  Eye,
+  Check
 } from 'lucide-react';
 import type { CodexEntry } from './CodexManager';
 import type { OutlineElement } from './OutlinePlanner';
@@ -26,6 +35,16 @@ interface ChatMessage {
   content: string;
 }
 
+export interface SceneSnapshot {
+  id: number;
+  scene_id: number;
+  content?: string;
+  word_count: number;
+  label: string;
+  source: 'manual' | 'ai_generation' | 'autosave' | 'safety_backup';
+  created_at: string;
+}
+
 export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, activeProvider }) => {
   const [elements, setElements] = useState<OutlineElement[]>([]);
   const [codex, setCodex] = useState<CodexEntry[]>([]);
@@ -37,19 +56,35 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
   const [lastSaved, setLastSaved] = useState<string>('');
   
   // Right Sidebar States
-  const [rightTab, setRightTab] = useState<'info' | 'ai'>('info');
+  const [rightTab, setRightTab] = useState<'info' | 'ai' | 'history'>('info');
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   
-  // AI Chat States
+  // AI States & Streaming
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
+  const [streamingAction, setStreamingAction] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Runtime Style Overrides
+  const [stylePov, setStylePov] = useState<string>('default');
+  const [styleTense, setStyleTense] = useState<string>('default');
+  const [styleTone, setStyleTone] = useState<string>('default');
+  const [showStyleSettings, setShowStyleSettings] = useState(false);
   
   // Selection Rewrite states
   const [selection, setSelection] = useState('');
   const [rewriteInstruction, setRewriteInstruction] = useState('');
   const [isRewriteModalOpen, setIsRewriteModalOpen] = useState(false);
+  const [streamedRewriteResult, setStreamedRewriteResult] = useState('');
+
+  // Snapshots & History states
+  const [snapshots, setSnapshots] = useState<SceneSnapshot[]>([]);
+  const [isCreateSnapshotModalOpen, setIsCreateSnapshotModalOpen] = useState(false);
+  const [newSnapshotLabel, setNewSnapshotLabel] = useState('');
+  const [previewSnapshot, setPreviewSnapshot] = useState<SceneSnapshot | null>(null);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
 
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const autosaveTimeoutRef = useRef<any>(null);
@@ -67,7 +102,6 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
         setElements(outData);
         setCodex(codexData);
 
-        // Select first scene if none selected
         const scenes = outData.filter(e => e.type === 'scene');
         if (scenes.length > 0 && activeSceneId === null) {
           handleSelectScene(scenes[0].id);
@@ -80,12 +114,26 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
 
   useEffect(() => {
     fetchStructure();
-    // Clear chat on project change
     setChatMessages([]);
   }, [projectId]);
 
+  // Fetch Snapshots for active scene
+  const fetchSnapshots = async (sceneId: number) => {
+    try {
+      setSnapshotLoading(true);
+      const res = await fetch(`${apiBase}/scenes/${sceneId}/snapshots`);
+      if (res.ok) {
+        const data = await res.json();
+        setSnapshots(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch snapshots:', err);
+    } finally {
+      setSnapshotLoading(false);
+    }
+  };
+
   const handleSelectScene = async (sceneId: number) => {
-    // Save current active scene first if exists
     if (activeSceneId !== null) {
       await saveSceneContent(activeSceneId, editorText);
     }
@@ -93,6 +141,8 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
     setActiveSceneId(sceneId);
     setEditorText('');
     setLastSaved('');
+    setSelection('');
+    setPreviewSnapshot(null);
     
     try {
       const res = await fetch(`${apiBase}/scenes/${sceneId}/content`);
@@ -103,6 +153,7 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
           setLastSaved(new Date(data.last_saved_at).toLocaleTimeString());
         }
       }
+      fetchSnapshots(sceneId);
     } catch (err) {
       console.error(err);
     }
@@ -121,7 +172,7 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
       setIsSaving(true);
       autosaveTimeoutRef.current = setTimeout(() => {
         saveSceneContent(activeSceneId, value);
-      }, 1500); // Autosave after 1.5s pause
+      }, 1500);
     }
   };
 
@@ -165,64 +216,168 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
     }
   };
 
-  // AI ACTIONS
+  // Stop AI Generation handler
+  const handleStopAI = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setAiLoading(false);
+    setStreamingAction(null);
+  };
+
+  // Helper to trigger automated snapshot before AI mutations
+  const createPreAISnapshot = async (sceneId: number, currentText: string, actionName: string) => {
+    try {
+      await fetch(`${apiBase}/scenes/${sceneId}/snapshots`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: currentText,
+          label: `Auto-snapshot before AI ${actionName}`,
+          source: 'ai_generation'
+        })
+      });
+      fetchSnapshots(sceneId);
+    } catch (err) {
+      console.warn('Pre-AI snapshot failed:', err);
+    }
+  };
+
+  // SSE Stream helper
+  const streamAIResponse = async (payload: any, onChunk: (text: string) => void) => {
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const res = await fetch(`${apiBase}/ai/generate-stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({ error: 'AI request failed' }));
+      throw new Error(errData.error || `HTTP ${res.status}`);
+    }
+
+    if (!res.body) {
+      throw new Error('No response stream available');
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    while (true) {
+      if (controller.signal.aborted) {
+        reader.cancel();
+        break;
+      }
+
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data:')) continue;
+        const dataStr = trimmed.replace(/^data:\s*/, '');
+        if (dataStr === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(dataStr);
+          if (parsed.error) throw new Error(parsed.error);
+          if (parsed.text) {
+            onChunk(parsed.text);
+          }
+        } catch (err: any) {
+          if (err.message && !err.message.includes('Unexpected token')) {
+            throw err;
+          }
+        }
+      }
+    }
+  };
+
+  // AI ACTIONS (Streaming)
   const handleAIAction = async (action: 'continue' | 'rewrite' | 'summarize') => {
     if (!activeSceneId) return;
     setAiLoading(true);
     setAiError('');
+    setStreamingAction(action);
+
+    const styleOverrides = {
+      ...(stylePov !== 'default' ? { pov: stylePov } : {}),
+      ...(styleTense !== 'default' ? { tense: styleTense } : {}),
+      ...(styleTone !== 'default' ? { tone: styleTone } : {})
+    };
 
     try {
-      let payload: any = {
-        sceneId: activeSceneId,
-        action
-      };
+      if (action === 'continue') {
+        // Take safety snapshot before modifying text
+        await createPreAISnapshot(activeSceneId, editorText, 'Continue');
 
-      if (action === 'rewrite') {
+        const space = editorText.endsWith(' ') || editorText.endsWith('\n') || editorText.length === 0 ? '' : ' ';
+        let currentFullText = editorText + space;
+        setEditorText(currentFullText);
+
+        await streamAIResponse(
+          {
+            sceneId: activeSceneId,
+            action: 'continue',
+            styleOverrides
+          },
+          (chunk) => {
+            currentFullText += chunk;
+            setEditorText(currentFullText);
+          }
+        );
+
+        // Save on completion
+        await saveSceneContent(activeSceneId, currentFullText);
+      } else if (action === 'rewrite') {
         if (!selection) {
           alert('Please highlight a block of text in your editor to rewrite.');
           setAiLoading(false);
+          setStreamingAction(null);
           return;
         }
-        payload.selection = selection;
-        payload.prompt = rewriteInstruction;
-      } else if (action === 'summarize') {
-        payload.selection = selection || editorText;
-      }
 
-      const res = await fetch(`${apiBase}/ai/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+        setStreamedRewriteResult('');
+        let accumulatedResult = '';
 
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || 'AI request failed');
-      }
-
-      const data = await res.json();
-      const generated = data.text;
-
-      if (action === 'continue') {
-        // Append generated text
-        const space = editorText.endsWith(' ') || editorText.endsWith('\n') ? '' : ' ';
-        const newText = editorText + space + generated;
-        setEditorText(newText);
-        saveSceneContent(activeSceneId, newText);
-      } else if (action === 'rewrite') {
-        // Replace selection
-        if (editorRef.current) {
-          const start = editorRef.current.selectionStart;
-          const end = editorRef.current.selectionEnd;
-          const newText = editorText.substring(0, start) + generated + editorText.substring(end);
-          setEditorText(newText);
-          saveSceneContent(activeSceneId, newText);
-          setIsRewriteModalOpen(false);
-          setRewriteInstruction('');
-        }
+        await streamAIResponse(
+          {
+            sceneId: activeSceneId,
+            action: 'rewrite',
+            selection,
+            prompt: rewriteInstruction,
+            styleOverrides
+          },
+          (chunk) => {
+            accumulatedResult += chunk;
+            setStreamedRewriteResult(accumulatedResult);
+          }
+        );
       } else if (action === 'summarize') {
         const activeScene = elements.find(el => el.id === activeSceneId);
         if (!activeScene) throw new Error('Active scene not found in index');
+
+        let summaryText = '';
+        await streamAIResponse(
+          {
+            sceneId: activeSceneId,
+            action: 'summarize',
+            selection: selection || editorText,
+            styleOverrides
+          },
+          (chunk) => {
+            summaryText += chunk;
+          }
+        );
 
         // Save summary back to outline
         await fetch(`${apiBase}/projects/${projectId}/outline/${activeSceneId}`, {
@@ -231,56 +386,97 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
           body: JSON.stringify({
             title: activeScene.title,
             position: activeScene.position,
-            summary: generated,
+            summary: summaryText,
             status: activeScene.status,
             metadata: activeScene.metadata
           })
         });
         await fetchStructure();
-        alert('Scene summary updated using manuscript!');
+        alert('Scene summary updated using manuscript outline!');
       }
     } catch (err: any) {
-      setAiError(err.message || 'Error running AI action');
+      if (err.name !== 'AbortError') {
+        setAiError(err.message || 'Error running AI action');
+      }
     } finally {
       setAiLoading(false);
+      setStreamingAction(null);
+      abortControllerRef.current = null;
     }
   };
 
-  // AI Chat Submit
+  // Apply rewrite into manuscript
+  const handleApplyRewrite = async () => {
+    if (!activeSceneId || !editorRef.current || !streamedRewriteResult) return;
+    
+    // Safety snapshot
+    await createPreAISnapshot(activeSceneId, editorText, 'Rewrite Selection');
+
+    const start = editorRef.current.selectionStart;
+    const end = editorRef.current.selectionEnd;
+    const newText = editorText.substring(0, start) + streamedRewriteResult + editorText.substring(end);
+    
+    setEditorText(newText);
+    await saveSceneContent(activeSceneId, newText);
+    setIsRewriteModalOpen(false);
+    setRewriteInstruction('');
+    setStreamedRewriteResult('');
+    setSelection('');
+  };
+
+  // AI Chat Submit (Streaming)
   const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatInput.trim() || !activeSceneId) return;
+    if (!chatInput.trim() || !activeSceneId || aiLoading) return;
 
     const userMessage: ChatMessage = { role: 'user', content: chatInput };
-    setChatMessages(prev => [...prev, userMessage]);
+    const initialHistory = [...chatMessages, userMessage];
+    setChatMessages(initialHistory);
     setChatInput('');
     setAiLoading(true);
     setAiError('');
+    setStreamingAction('chat');
+
+    const styleOverrides = {
+      ...(stylePov !== 'default' ? { pov: stylePov } : {}),
+      ...(styleTense !== 'default' ? { tense: styleTense } : {}),
+      ...(styleTone !== 'default' ? { tone: styleTone } : {})
+    };
+
+    // Add placeholder assistant message for live streaming tokens
+    const assistantIndex = initialHistory.length;
+    setChatMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+
+    let accumulatedContent = '';
 
     try {
-      const res = await fetch(`${apiBase}/ai/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      await streamAIResponse(
+        {
           sceneId: activeSceneId,
           action: 'chat',
           prompt: userMessage.content,
-          history: chatMessages
-        })
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || 'AI chat failed');
-      }
-
-      const data = await res.json();
-      const assistantMessage: ChatMessage = { role: 'assistant', content: data.text };
-      setChatMessages(prev => [...prev, assistantMessage]);
+          history: chatMessages,
+          styleOverrides
+        },
+        (chunk) => {
+          accumulatedContent += chunk;
+          setChatMessages(prev => {
+            const updated = [...prev];
+            if (updated[assistantIndex]) {
+              updated[assistantIndex] = { role: 'assistant', content: accumulatedContent };
+            }
+            return updated;
+          });
+        }
+      );
     } catch (err: any) {
-      setAiError(err.message || 'Error calling chatbot');
+      if (err.name !== 'AbortError') {
+        setAiError(err.message || 'Error calling AI assistant');
+      }
     } finally {
       setAiLoading(false);
+      setStreamingAction(null);
+      abortControllerRef.current = null;
     }
   };
 
@@ -292,6 +488,86 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
       setEditorText(newText);
       saveSceneContent(activeSceneId, newText);
       alert('Prose inserted into manuscript!');
+    }
+  };
+
+  // Manual Snapshot handlers
+  const handleCreateSnapshot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeSceneId) return;
+
+    try {
+      const res = await fetch(`${apiBase}/scenes/${activeSceneId}/snapshots`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: editorText,
+          label: newSnapshotLabel.trim() || 'Manual Snapshot',
+          source: 'manual'
+        })
+      });
+
+      if (res.ok) {
+        setIsCreateSnapshotModalOpen(false);
+        setNewSnapshotLabel('');
+        fetchSnapshots(activeSceneId);
+      }
+    } catch (err) {
+      console.error('Failed to create snapshot:', err);
+    }
+  };
+
+  const handlePreviewSnapshot = async (snapshotId: number) => {
+    if (!activeSceneId) return;
+    try {
+      const res = await fetch(`${apiBase}/scenes/${activeSceneId}/snapshots/${snapshotId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setPreviewSnapshot(data);
+      }
+    } catch (err) {
+      console.error('Failed to load snapshot preview:', err);
+    }
+  };
+
+  const handleRestoreSnapshot = async (snapshotId: number) => {
+    if (!activeSceneId) return;
+    if (!confirm('Are you sure you want to restore this version? A safety backup of your current manuscript will be recorded.')) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${apiBase}/scenes/${activeSceneId}/snapshots/${snapshotId}/restore`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEditorText(data.restoredContent);
+        setPreviewSnapshot(null);
+        fetchSnapshots(activeSceneId);
+        alert('Scene successfully restored to historical version!');
+      }
+    } catch (err) {
+      console.error('Failed to restore snapshot:', err);
+    }
+  };
+
+  const handleDeleteSnapshot = async (snapshotId: number) => {
+    if (!activeSceneId) return;
+    if (!confirm('Permanently delete this snapshot record?')) return;
+
+    try {
+      const res = await fetch(`${apiBase}/scenes/${activeSceneId}/snapshots/${snapshotId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        if (previewSnapshot?.id === snapshotId) {
+          setPreviewSnapshot(null);
+        }
+        fetchSnapshots(activeSceneId);
+      }
+    } catch (err) {
+      console.error('Failed to delete snapshot:', err);
     }
   };
 
@@ -317,6 +593,24 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
     elements.filter(e => e.type === 'chapter' && e.parent_id === actId).sort((a, b) => a.position - b.position);
   const getScenesForChapter = (chapId: number) => 
     elements.filter(e => e.type === 'scene' && e.parent_id === chapId).sort((a, b) => a.position - b.position);
+
+  const getSourceBadgeColor = (source: string) => {
+    switch (source) {
+      case 'ai_generation': return 'rgba(129, 140, 248, 0.2)';
+      case 'safety_backup': return 'rgba(234, 179, 8, 0.2)';
+      case 'manual': return 'rgba(34, 197, 94, 0.2)';
+      default: return 'rgba(255, 255, 255, 0.1)';
+    }
+  };
+
+  const getSourceBadgeTextColor = (source: string) => {
+    switch (source) {
+      case 'ai_generation': return 'var(--primary)';
+      case 'safety_backup': return 'var(--status-review)';
+      case 'manual': return 'var(--status-done)';
+      default: return 'var(--text-secondary)';
+    }
+  };
 
   return (
     <div style={{ display: 'flex', flex: 1, height: '100%', overflow: 'hidden' }} className="animate-scale">
@@ -431,19 +725,38 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
                 </div>
 
                 <div style={{ display: 'flex', gap: '6px' }}>
-                  <button 
-                    onClick={() => handleAIAction('continue')}
-                    disabled={aiLoading}
-                    className="btn btn-primary"
-                    style={{ padding: '6px 12px', fontSize: '12px' }}
-                    title="Generate narrative prose continuing from your cursor"
-                  >
-                    <Sparkles size={13} /> Continue Writing
-                  </button>
-
-                  {selection && (
+                  {aiLoading ? (
+                    <button
+                      onClick={handleStopAI}
+                      className="btn"
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                        color: '#f87171',
+                        border: '1px solid rgba(239, 68, 68, 0.4)'
+                      }}
+                      title="Halt AI Generation"
+                    >
+                      <Square size={13} style={{ fill: '#f87171' }} /> Stop Generating
+                    </button>
+                  ) : (
                     <button 
-                      onClick={() => setIsRewriteModalOpen(true)}
+                      onClick={() => handleAIAction('continue')}
+                      className="btn btn-primary"
+                      style={{ padding: '6px 12px', fontSize: '12px' }}
+                      title="Generate narrative prose continuing from your draft with live streaming"
+                    >
+                      <Sparkles size={13} /> Continue Writing
+                    </button>
+                  )}
+
+                  {selection && !aiLoading && (
+                    <button 
+                      onClick={() => {
+                        setStreamedRewriteResult('');
+                        setIsRewriteModalOpen(true);
+                      }}
                       className="btn btn-secondary"
                       style={{ padding: '6px 12px', fontSize: '12px', borderColor: 'var(--primary)' }}
                     >
@@ -455,6 +768,7 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
                     onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
                     className="btn btn-secondary"
                     style={{ padding: '6px' }}
+                    title="Toggle Sidebar"
                   >
                     {isRightSidebarOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
                   </button>
@@ -487,7 +801,7 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
               />
             </div>
 
-            {/* Word Count Footer */}
+            {/* Word Count & Status Footer */}
             <div 
               style={{ 
                 padding: '8px 24px', 
@@ -500,8 +814,18 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
                 background: 'rgba(0, 0, 0, 0.2)'
               }}
             >
-              <span>Words: {editorText ? editorText.trim().split(/\s+/).length : 0}</span>
-              <span>Characters: {editorText.length}</span>
+              <div style={{ display: 'flex', gap: '16px' }}>
+                <span>Words: {editorText ? editorText.trim().split(/\s+/).filter(Boolean).length : 0}</span>
+                <span>Characters: {editorText.length}</span>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                {streamingAction && (
+                  <span style={{ color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Sparkles size={12} className="spin" /> Streaming {streamingAction}...
+                  </span>
+                )}
+                <span>Snapshots: {snapshots.length}</span>
+              </div>
             </div>
           </>
         ) : (
@@ -513,11 +837,11 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
         )}
       </section>
 
-      {/* RIGHT SIDEBAR PANEL: Scene Info & AI Chat Context */}
+      {/* RIGHT SIDEBAR PANEL: Scene Info, AI Chat, & Version History */}
       {activeScene && isRightSidebarOpen && (
         <aside
           style={{
-            width: '320px',
+            width: '340px',
             borderLeft: '1px solid var(--border-light)',
             background: 'rgba(10, 10, 15, 0.95)',
             display: 'flex',
@@ -532,50 +856,70 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
               onClick={() => setRightTab('info')}
               style={{
                 flex: 1,
-                padding: '14px',
+                padding: '12px 6px',
                 background: rightTab === 'info' ? 'rgba(255,255,255,0.03)' : 'transparent',
                 border: 'none',
                 color: rightTab === 'info' ? '#ffffff' : 'var(--text-secondary)',
                 cursor: 'pointer',
-                fontSize: '13px',
+                fontSize: '12px',
                 fontWeight: 600,
                 borderBottom: rightTab === 'info' ? '2px solid var(--primary)' : '2px solid transparent',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '8px'
+                gap: '6px'
               }}
             >
-              <Info size={14} /> Scene Info
+              <Info size={13} /> Info
             </button>
             <button
               onClick={() => setRightTab('ai')}
               style={{
                 flex: 1,
-                padding: '14px',
+                padding: '12px 6px',
                 background: rightTab === 'ai' ? 'rgba(255,255,255,0.03)' : 'transparent',
                 border: 'none',
                 color: rightTab === 'ai' ? '#ffffff' : 'var(--text-secondary)',
                 cursor: 'pointer',
-                fontSize: '13px',
+                fontSize: '12px',
                 fontWeight: 600,
                 borderBottom: rightTab === 'ai' ? '2px solid var(--primary)' : '2px solid transparent',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '8px'
+                gap: '6px'
               }}
             >
-              <MessageSquare size={14} /> AI Assistant
+              <MessageSquare size={13} /> AI Co-Writer
+            </button>
+            <button
+              onClick={() => setRightTab('history')}
+              style={{
+                flex: 1,
+                padding: '12px 6px',
+                background: rightTab === 'history' ? 'rgba(255,255,255,0.03)' : 'transparent',
+                border: 'none',
+                color: rightTab === 'history' ? '#ffffff' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontSize: '12px',
+                fontWeight: 600,
+                borderBottom: rightTab === 'history' ? '2px solid var(--primary)' : '2px solid transparent',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px'
+              }}
+            >
+              <History size={13} /> History ({snapshots.length})
             </button>
           </div>
 
           {/* Panel body */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             
-            {rightTab === 'info' ? (
+            {/* 1. SCENE INFO TAB */}
+            {rightTab === 'info' && (
               <>
-                {/* Scene summary element */}
                 <div>
                   <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '8px', letterSpacing: '0.05em' }}>
                     Scene Plot Outline
@@ -610,7 +954,6 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
                   )}
                 </div>
 
-                {/* Detected Codex elements in current text */}
                 <div>
                   <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '8px', letterSpacing: '0.05em' }}>
                     World Lore Detected ({detectedCodex.length})
@@ -643,10 +986,87 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
                   )}
                 </div>
               </>
-            ) : (
-              /* AI CHAT VIEW */
+            )}
+
+            {/* 2. AI CO-WRITER & CHAT TAB */}
+            {rightTab === 'ai' && (
               <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: '350px' }}>
                 
+                {/* Style Quick Settings Toggle */}
+                <div style={{ marginBottom: '12px' }}>
+                  <button
+                    onClick={() => setShowStyleSettings(!showStyleSettings)}
+                    className="btn btn-secondary"
+                    style={{ width: '100%', fontSize: '11px', padding: '6px', justifyContent: 'space-between' }}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Sliders size={12} /> Narrative Style Presets
+                    </span>
+                    <span>{showStyleSettings ? '▲ Hide' : '▼ Tweak'}</span>
+                  </button>
+
+                  {showStyleSettings && (
+                    <div 
+                      className="glass-panel" 
+                      style={{ 
+                        marginTop: '8px', 
+                        padding: '10px', 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        gap: '8px',
+                        fontSize: '11px',
+                        background: 'rgba(0,0,0,0.3)'
+                      }}
+                    >
+                      <div>
+                        <label style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '3px' }}>POV</label>
+                        <select 
+                          value={stylePov} 
+                          onChange={(e) => setStylePov(e.target.value)}
+                          className="input"
+                          style={{ padding: '4px 8px', fontSize: '11px' }}
+                        >
+                          <option value="default">Use Global Setting</option>
+                          <option value="third_limited">3rd Person Limited</option>
+                          <option value="first_person">1st Person</option>
+                          <option value="third_omniscient">3rd Person Omniscient</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '3px' }}>Tense</label>
+                        <select 
+                          value={styleTense} 
+                          onChange={(e) => setStyleTense(e.target.value)}
+                          className="input"
+                          style={{ padding: '4px 8px', fontSize: '11px' }}
+                        >
+                          <option value="default">Use Global Setting</option>
+                          <option value="past">Past Tense</option>
+                          <option value="present">Present Tense</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '3px' }}>Tone</label>
+                        <select 
+                          value={styleTone} 
+                          onChange={(e) => setStyleTone(e.target.value)}
+                          className="input"
+                          style={{ padding: '4px 8px', fontSize: '11px' }}
+                        >
+                          <option value="default">Use Global Setting</option>
+                          <option value="Balanced Narrative">Balanced Narrative</option>
+                          <option value="Grimdark & Gritty">Grimdark & Gritty</option>
+                          <option value="Lyrical & Atmospheric">Lyrical & Atmospheric</option>
+                          <option value="Fast-Paced Action">Fast-Paced Action</option>
+                          <option value="Humorous & Witty">Humorous & Witty</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {aiError && (
                   <div style={{ color: '#f87171', backgroundColor: 'rgba(239,68,68,0.1)', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', marginBottom: '12px', display: 'flex', gap: '6px', alignItems: 'center' }}>
                     <AlertCircle size={14} /> {aiError}
@@ -677,17 +1097,19 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
                         <div style={{ fontSize: '11px', color: msg.role === 'user' ? 'var(--primary)' : 'var(--secondary)', marginBottom: '3px', fontWeight: 600 }}>
                           {msg.role === 'user' ? 'Author' : 'Co-Writer'}
                         </div>
-                        <div style={{ whiteSpace: 'pre-wrap', color: '#ffffff' }}>{msg.content}</div>
-                        {msg.role === 'assistant' && (
+                        <div style={{ whiteSpace: 'pre-wrap', color: '#ffffff' }}>
+                          {msg.content || (aiLoading && idx === chatMessages.length - 1 ? '...' : '')}
+                        </div>
+                        {msg.role === 'assistant' && msg.content && (
                           <button
                             onClick={() => insertChatOutput(msg.content)}
                             className="btn btn-secondary"
                             style={{ 
                               padding: '2px 6px', 
                               fontSize: '10px', 
-                              marginTop: '8px',
-                              width: '100%',
-                              textAlign: 'center'
+                              marginTop: '8px', 
+                              width: '100%', 
+                              textAlign: 'center' 
                             }}
                           >
                             Insert into Manuscript
@@ -696,9 +1118,15 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
                       </div>
                     ))
                   )}
-                  {aiLoading && (
-                    <div style={{ alignSelf: 'flex-start', padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                      Co-Writer is thinking...
+                  {aiLoading && streamingAction === 'chat' && (
+                    <div style={{ display: 'flex', justifyContent: 'center', marginTop: '6px' }}>
+                      <button 
+                        onClick={handleStopAI}
+                        className="btn" 
+                        style={{ padding: '4px 10px', fontSize: '11px', color: '#f87171', borderColor: 'rgba(239,68,68,0.3)' }}
+                      >
+                        <Square size={10} style={{ fill: '#f87171' }} /> Stop Streaming
+                      </button>
                     </div>
                   )}
                 </div>
@@ -714,10 +1142,102 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
                     disabled={aiLoading}
                     style={{ fontSize: '13px' }}
                   />
-                  <button type="submit" className="btn btn-primary" style={{ padding: '8px' }} disabled={aiLoading}>
+                  <button type="submit" className="btn btn-primary" style={{ padding: '8px' }} disabled={aiLoading || !chatInput.trim()}>
                     <Send size={14} />
                   </button>
                 </form>
+              </div>
+            )}
+
+            {/* 3. HISTORY & SNAPSHOTS TAB */}
+            {rightTab === 'history' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <button
+                  onClick={() => setIsCreateSnapshotModalOpen(true)}
+                  className="btn btn-primary"
+                  style={{ width: '100%', fontSize: '12px', padding: '8px' }}
+                >
+                  <Plus size={14} /> Take Manual Snapshot
+                </button>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+                  {snapshotLoading ? (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', padding: '20px' }}>
+                      Loading versions...
+                    </div>
+                  ) : snapshots.length === 0 ? (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px', padding: '20px' }}>
+                      No snapshots recorded yet. Manual snapshots or pre-AI snapshots will appear here.
+                    </div>
+                  ) : (
+                    snapshots.map(snap => (
+                      <div 
+                        key={snap.id}
+                        className="glass-panel"
+                        style={{
+                          padding: '10px 12px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '6px',
+                          border: '1px solid var(--border-light)',
+                          borderRadius: '8px'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <span style={{ fontWeight: 600, fontSize: '12px', color: '#ffffff', wordBreak: 'break-word' }}>
+                            {snap.label}
+                          </span>
+                          <span 
+                            style={{ 
+                              fontSize: '10px', 
+                              padding: '2px 6px', 
+                              borderRadius: '4px',
+                              backgroundColor: getSourceBadgeColor(snap.source),
+                              color: getSourceBadgeTextColor(snap.source),
+                              textTransform: 'uppercase',
+                              fontWeight: 600,
+                              flexShrink: 0
+                            }}
+                          >
+                            {snap.source.replace('_', ' ')}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--text-muted)' }}>
+                          <span>{new Date(snap.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                          <span>{snap.word_count} words</span>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                          <button
+                            onClick={() => handlePreviewSnapshot(snap.id)}
+                            className="btn btn-secondary"
+                            style={{ flex: 1, padding: '4px', fontSize: '11px' }}
+                            title="Preview Content"
+                          >
+                            <Eye size={11} /> View
+                          </button>
+                          <button
+                            onClick={() => handleRestoreSnapshot(snap.id)}
+                            className="btn btn-secondary"
+                            style={{ flex: 1, padding: '4px', fontSize: '11px', color: 'var(--status-done)', borderColor: 'rgba(34, 197, 94, 0.3)' }}
+                            title="Restore this version"
+                          >
+                            <RotateCcw size={11} /> Restore
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSnapshot(snap.id)}
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 6px', fontSize: '11px', color: '#f87171' }}
+                            title="Delete"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             )}
 
@@ -725,21 +1245,131 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
         </aside>
       )}
 
-      {/* REWRITE DIALOG MODAL */}
+      {/* CREATE SNAPSHOT MODAL */}
+      {isCreateSnapshotModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '400px' }}>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '18px', color: '#ffffff', marginBottom: '12px' }}>
+              Create Scene Snapshot
+            </h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '16px' }}>
+              Record a historical point-in-time copy of your scene manuscript.
+            </p>
+
+            <form onSubmit={handleCreateSnapshot} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label className="label">Snapshot Label / Reason</label>
+                <input
+                  type="text"
+                  value={newSnapshotLabel}
+                  onChange={(e) => setNewSnapshotLabel(e.target.value)}
+                  placeholder="e.g. Before climax revision"
+                  className="input"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setIsCreateSnapshotModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  Save Snapshot
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* PREVIEW SNAPSHOT MODAL */}
+      {previewSnapshot && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '700px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', color: '#ffffff' }}>{previewSnapshot.label}</h3>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Recorded on {new Date(previewSnapshot.created_at).toLocaleString()} • {previewSnapshot.word_count} words
+                </span>
+              </div>
+              <button 
+                onClick={() => setPreviewSnapshot(null)}
+                className="btn btn-secondary"
+                style={{ padding: '6px' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div 
+              style={{ 
+                flex: 1, 
+                overflowY: 'auto', 
+                padding: '16px', 
+                backgroundColor: 'rgba(0,0,0,0.3)', 
+                borderRadius: '8px', 
+                border: '1px solid var(--border-light)',
+                whiteSpace: 'pre-wrap',
+                fontSize: '14px',
+                lineHeight: '1.7',
+                color: 'rgba(255,255,255,0.85)',
+                margin: '12px 0'
+              }}
+            >
+              {previewSnapshot.content || '<Empty Content>'}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+              <button
+                onClick={() => handleDeleteSnapshot(previewSnapshot.id)}
+                className="btn btn-secondary"
+                style={{ color: '#f87171', fontSize: '12px' }}
+              >
+                <Trash2 size={13} /> Delete Snapshot
+              </button>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setPreviewSnapshot(null)}
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => handleRestoreSnapshot(previewSnapshot.id)}
+                >
+                  <RotateCcw size={14} /> Restore to Active Draft
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* REWRITE DIALOG MODAL (Streaming) */}
       {isRewriteModalOpen && (
         <div className="modal-overlay">
-          <div className="modal-content">
+          <div className="modal-content" style={{ maxWidth: '650px' }}>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '20px', marginBottom: '14px', color: '#ffffff' }}>
               Rewrite Highlighted Selection
             </h2>
             
             <div style={{ margin: '12px 0' }}>
-              <label className="label">Your Selected Text</label>
+              <label className="label">Original Selected Text</label>
               <div 
                 style={{ 
                   padding: '10px', 
                   fontSize: '13px', 
-                  maxHeight: '100px', 
+                  maxHeight: '90px', 
                   overflowY: 'auto', 
                   border: '1px solid var(--border-light)', 
                   borderRadius: '6px',
@@ -751,36 +1381,101 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
               </div>
             </div>
 
-            <form onSubmit={(e) => { e.preventDefault(); handleAIAction('rewrite'); }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div>
-                <label className="label">Instructions for rewrite</label>
-                <input 
-                  type="text" 
-                  value={rewriteInstruction} 
-                  onChange={(e) => setRewriteInstruction(e.target.value)} 
-                  className="input" 
-                  placeholder="e.g. Make it more gothic, make it concise, add description of rain..."
-                  required 
-                  autoFocus
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '10px' }}>
-                <button 
-                  type="button" 
-                  className="btn btn-secondary" 
-                  onClick={() => setIsRewriteModalOpen(false)}
+            {streamedRewriteResult ? (
+              <div style={{ margin: '12px 0' }}>
+                <label className="label" style={{ color: 'var(--primary)' }}>Transformed Result (Preview)</label>
+                <div 
+                  style={{ 
+                    padding: '12px', 
+                    fontSize: '14px', 
+                    lineHeight: '1.6', 
+                    maxHeight: '180px', 
+                    overflowY: 'auto', 
+                    border: '1px solid var(--primary)', 
+                    borderRadius: '6px',
+                    background: 'rgba(129, 140, 248, 0.05)',
+                    whiteSpace: 'pre-wrap'
+                  }}
                 >
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary" disabled={aiLoading}>
-                  {aiLoading ? 'Rewriting...' : 'Transform Text'}
-                </button>
+                  {streamedRewriteResult}
+                  {aiLoading && <span className="spin"> ✍️</span>}
+                </div>
               </div>
-            </form>
+            ) : (
+              <form onSubmit={(e) => { e.preventDefault(); handleAIAction('rewrite'); }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div>
+                  <label className="label">Instructions for rewrite</label>
+                  <input 
+                    type="text" 
+                    value={rewriteInstruction} 
+                    onChange={(e) => setRewriteInstruction(e.target.value)} 
+                    className="input" 
+                    placeholder="e.g. Make it more visceral, concise, add rain atmosphere..."
+                    required 
+                    autoFocus
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '10px' }}>
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary" 
+                    onClick={() => setIsRewriteModalOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary" disabled={aiLoading}>
+                    {aiLoading ? 'Transforming...' : 'Stream Transformation'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {streamedRewriteResult && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px' }}>
+                {aiLoading ? (
+                  <button onClick={handleStopAI} className="btn" style={{ color: '#f87171', borderColor: 'rgba(239,68,68,0.3)' }}>
+                    <Square size={12} style={{ fill: '#f87171' }} /> Stop Generating
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => {
+                      setStreamedRewriteResult('');
+                      handleAIAction('rewrite');
+                    }} 
+                    className="btn btn-secondary"
+                    style={{ fontSize: '12px' }}
+                  >
+                    <RefreshCw size={12} /> Regenerate
+                  </button>
+                )}
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary" 
+                    onClick={() => {
+                      setIsRewriteModalOpen(false);
+                      setStreamedRewriteResult('');
+                    }}
+                  >
+                    Discard
+                  </button>
+                  <button 
+                    type="button" 
+                    className="btn btn-primary" 
+                    onClick={handleApplyRewrite}
+                    disabled={aiLoading}
+                  >
+                    <Check size={14} /> Apply to Manuscript
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
     </div>
   );
 };
+

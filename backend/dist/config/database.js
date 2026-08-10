@@ -81,6 +81,19 @@ async function initializeSchema(db) {
       FOREIGN KEY(scene_id) REFERENCES outline_elements(id) ON DELETE CASCADE
     )
   `);
+    // Scene Snapshots (Version History)
+    await db.exec(`
+    CREATE TABLE IF NOT EXISTS scene_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scene_id INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      word_count INTEGER NOT NULL DEFAULT 0,
+      label TEXT,
+      source TEXT NOT NULL, -- 'manual', 'ai_generation', 'autosave', 'safety_backup'
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(scene_id) REFERENCES outline_elements(id) ON DELETE CASCADE
+    )
+  `);
     // Settings table for storing local configs & credentials securely (API keys)
     await db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
@@ -88,22 +101,26 @@ async function initializeSchema(db) {
       value TEXT NOT NULL
     )
   `);
-    // Populate default settings if not exists
-    const hasSettings = await db.get('SELECT COUNT(*) as count FROM settings');
-    if (hasSettings && hasSettings.count === 0) {
-        const defaultSettings = [
-            { key: 'openai_api_key', value: '' },
-            { key: 'openai_model', value: 'gpt-4o-mini' },
-            { key: 'anthropic_api_key', value: '' },
-            { key: 'anthropic_model', value: 'claude-3-5-sonnet-20240620' },
-            { key: 'openrouter_api_key', value: '' },
-            { key: 'openrouter_model', value: 'meta-llama/llama-3-8b-instruct:free' },
-            { key: 'ollama_url', value: 'http://localhost:11434' },
-            { key: 'ollama_model', value: 'llama3' },
-            { key: 'active_provider', value: 'ollama' } // Default to ollama for self-host offline first!
-        ];
-        for (const setting of defaultSettings) {
-            await db.run('INSERT INTO settings (key, value) VALUES (?, ?)', setting.key, setting.value);
-        }
+    // Populate default settings (using INSERT OR IGNORE to ensure new keys exist in pre-existing databases)
+    const defaultSettings = [
+        { key: 'openai_api_key', value: '' },
+        { key: 'openai_model', value: 'gpt-4o-mini' },
+        { key: 'anthropic_api_key', value: '' },
+        { key: 'anthropic_model', value: 'claude-3-5-sonnet-20240620' },
+        { key: 'openrouter_api_key', value: '' },
+        { key: 'openrouter_model', value: 'meta-llama/llama-3-8b-instruct:free' },
+        { key: 'ollama_url', value: 'http://localhost:11434' },
+        { key: 'ollama_model', value: 'llama3' },
+        { key: 'active_provider', value: 'ollama' },
+        // Style & Prompt Studio Defaults
+        { key: 'writing_pov', value: 'third_limited' }, // 'first_person', 'third_limited', 'third_omniscient', 'second_person'
+        { key: 'writing_tense', value: 'past' }, // 'past', 'present'
+        { key: 'writing_tone', value: 'Balanced Narrative' }, // 'Grimdark & Gritty', 'Lyrical & Atmospheric', 'Fast-Paced Action', 'Humorous & Witty', 'Balanced Narrative'
+        { key: 'writing_custom_rules', value: '' },
+        { key: 'prompt_template_continue', value: '' },
+        { key: 'prompt_template_rewrite', value: '' }
+    ];
+    for (const setting of defaultSettings) {
+        await db.run('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', setting.key, setting.value);
     }
 }
