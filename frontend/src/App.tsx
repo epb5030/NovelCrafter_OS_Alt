@@ -11,13 +11,29 @@ import { ExportModal } from './components/ExportModal';
 
 const API_BASE = import.meta.env.DEV ? 'http://localhost:3005/api' : '/api';
 
+export type ThemeType = 'vintage-typewriter' | 'antique-library' | 'dark-academia' | 'modern-studio';
+
 function App() {
   const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState<string>('write');
   const [activeProvider, setActiveProvider] = useState<string>('ollama');
+  const [activeTheme, setActiveTheme] = useState<ThemeType>('vintage-typewriter');
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
   const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
+
+  // Load saved theme from localStorage or settings
+  useEffect(() => {
+    const savedTheme = (localStorage.getItem('opencrafter_theme') as ThemeType) || 'vintage-typewriter';
+    setActiveTheme(savedTheme);
+    document.documentElement.setAttribute('data-theme', savedTheme);
+  }, []);
+
+  const handleThemeChange = (newTheme: ThemeType) => {
+    setActiveTheme(newTheme);
+    localStorage.setItem('opencrafter_theme', newTheme);
+    document.documentElement.setAttribute('data-theme', newTheme);
+  };
 
   // Fetch active provider on load & settings changes
   const fetchActiveProvider = async () => {
@@ -109,6 +125,8 @@ function App() {
           <Settings 
             apiBase={API_BASE} 
             onSettingsSaved={fetchActiveProvider} 
+            activeTheme={activeTheme}
+            onThemeChange={handleThemeChange}
           />
         );
       default:

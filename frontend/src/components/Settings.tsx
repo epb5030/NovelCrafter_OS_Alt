@@ -1,12 +1,32 @@
 import React, { useState, useEffect } from 'react';
-import { Save, ShieldAlert, Sparkles, Cpu, Key, CheckCircle2 } from 'lucide-react';
+import { 
+  Save, 
+  ShieldAlert, 
+  Sparkles, 
+  Cpu, 
+  Key, 
+  CheckCircle2, 
+  Palette, 
+  BookOpen, 
+  Feather, 
+  Flame, 
+  Monitor 
+} from 'lucide-react';
+import type { ThemeType } from '../App';
 
 interface SettingsProps {
   apiBase: string;
   onSettingsSaved: () => void;
+  activeTheme?: ThemeType;
+  onThemeChange?: (theme: ThemeType) => void;
 }
 
-export const Settings: React.FC<SettingsProps> = ({ apiBase, onSettingsSaved }) => {
+export const Settings: React.FC<SettingsProps> = ({ 
+  apiBase, 
+  onSettingsSaved,
+  activeTheme = 'vintage-typewriter',
+  onThemeChange
+}) => {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [savedMessage, setSavedMessage] = useState(false);
@@ -60,12 +80,47 @@ export const Settings: React.FC<SettingsProps> = ({ apiBase, onSettingsSaved }) 
   if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-secondary)' }}>
-        Loading AI preferences...
+        Loading studio preferences...
       </div>
     );
   }
 
   const activeProvider = settings.active_provider || 'ollama';
+
+  const themesList = [
+    {
+      id: 'vintage-typewriter' as ThemeType,
+      name: 'Vintage Typewriter & Editorial',
+      subtitle: 'Concept B (Active)',
+      desc: 'Warm cream linen, authentic monospace Courier typewriter typography, deep forest green, and tobacco leather accents.',
+      icon: Feather,
+      badgeColor: '#c89d54'
+    },
+    {
+      id: 'antique-library' as ThemeType,
+      name: 'The Grand Antique Library',
+      subtitle: 'Concept A (Saved Theme)',
+      desc: 'Rich dark mahogany cabinetry, aged ivory parchment canvas, brass metal trims, and classic Crimson Pro book typography.',
+      icon: BookOpen,
+      badgeColor: '#d4af37'
+    },
+    {
+      id: 'dark-academia' as ThemeType,
+      name: 'Dark Academia Leatherbound',
+      subtitle: 'Concept C (Saved Theme)',
+      desc: 'Deep oxblood leather bindings, gold-foil filigree embossing, candlelit walnut study, and Roman Cinzel titling.',
+      icon: Flame,
+      badgeColor: '#eab308'
+    },
+    {
+      id: 'modern-studio' as ThemeType,
+      name: 'Modern Studio (Dark)',
+      subtitle: 'Glassmorphism',
+      desc: 'Sleek dark indigo workspace with modern sans-serif typography.',
+      icon: Monitor,
+      badgeColor: '#818cf8'
+    }
+  ];
 
   return (
     <div 
@@ -76,16 +131,73 @@ export const Settings: React.FC<SettingsProps> = ({ apiBase, onSettingsSaved }) 
         display: 'flex', 
         flexDirection: 'column', 
         gap: '24px',
-        maxWidth: '800px'
+        maxWidth: '850px'
       }}
       className="animate-fade"
     >
       {/* Header */}
       <div>
-        <h1 style={{ fontSize: '26px', fontFamily: 'var(--font-display)', color: '#ffffff' }}>AI & Model Integration</h1>
+        <h1 style={{ fontSize: '26px', fontFamily: 'var(--font-display)', color: '#ffffff' }}>Studio Settings & Atmosphere</h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-          Configure your proprietary API keys or integrate a local model running on your server.
+          Customize your author aesthetic, narrative guidelines, and AI co-writer integrations.
         </p>
+      </div>
+
+      {/* 1. VISUAL THEME & AESTHETIC SELECTOR */}
+      <div className="glass-panel" style={{ padding: '20px', border: '1px solid var(--border-light)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+          <Palette size={18} style={{ color: 'var(--primary)' }} />
+          <div>
+            <h3 style={{ color: '#ffffff', fontSize: '16px' }}>Visual Theme & Aesthetic</h3>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Choose your preferred author study atmosphere.</span>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+          {themesList.map(t => {
+            const Icon = t.icon;
+            const isSelected = activeTheme === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onThemeChange && onThemeChange(t.id)}
+                style={{
+                  padding: '16px',
+                  borderRadius: 'var(--radius-md)',
+                  border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border-light)',
+                  background: isSelected ? 'rgba(200, 157, 84, 0.12)' : 'rgba(0, 0, 0, 0.2)',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  transition: 'var(--transition-smooth)'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Icon size={16} style={{ color: t.badgeColor }} />
+                    <span style={{ fontWeight: 700, fontSize: '13px', color: '#ffffff' }}>{t.name}</span>
+                  </div>
+                  {isSelected && (
+                    <span style={{ fontSize: '10px', color: 'var(--primary)', fontWeight: 700, textTransform: 'uppercase' }}>
+                      Active
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ fontSize: '10px', color: t.badgeColor, fontWeight: 600 }}>
+                  {t.subtitle}
+                </div>
+
+                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                  {t.desc}
+                </p>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -115,7 +227,7 @@ export const Settings: React.FC<SettingsProps> = ({ apiBase, onSettingsSaved }) 
                   padding: '16px',
                   height: 'auto',
                   gap: '4px',
-                  background: activeProvider === p.id ? 'rgba(129, 140, 248, 0.08)' : 'rgba(255, 255, 255, 0.02)',
+                  background: activeProvider === p.id ? 'rgba(200, 157, 84, 0.15)' : 'rgba(0, 0, 0, 0.2)',
                   borderColor: activeProvider === p.id ? 'var(--primary)' : 'var(--border-light)',
                   color: activeProvider === p.id ? '#ffffff' : 'var(--text-secondary)',
                   borderWidth: '1px',
@@ -168,7 +280,7 @@ export const Settings: React.FC<SettingsProps> = ({ apiBase, onSettingsSaved }) 
                   color: 'var(--text-secondary)', 
                   display: 'flex', 
                   gap: '8px', 
-                  backgroundColor: 'rgba(255,255,255,0.02)',
+                  backgroundColor: 'rgba(0,0,0,0.2)',
                   padding: '10px',
                   borderRadius: '6px',
                   border: '1px solid var(--border-light)'
@@ -188,12 +300,12 @@ export const Settings: React.FC<SettingsProps> = ({ apiBase, onSettingsSaved }) 
           <div className="glass-panel" style={{ padding: '20px', border: '1px solid var(--border-light)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
               <Key size={18} style={{ color: 'var(--primary)' }} />
-              <h3 style={{ color: '#ffffff', fontSize: '16px' }}>OpenAI Credentials</h3>
+              <h3 style={{ color: '#ffffff', fontSize: '16px' }}>OpenAI Configuration</h3>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label className="label">API Key</label>
+                <label className="label">OpenAI API Key</label>
                 <input 
                   type="password" 
                   value={settings.openai_api_key || ''} 
@@ -206,15 +318,14 @@ export const Settings: React.FC<SettingsProps> = ({ apiBase, onSettingsSaved }) 
 
               <div>
                 <label className="label">Model</label>
-                <select
-                  value={settings.openai_model || 'gpt-4o-mini'}
-                  onChange={(e) => updateSetting('openai_model', e.target.value)}
-                  className="input"
-                >
-                  <option value="gpt-4o-mini">gpt-4o-mini (Recommended - Fast & Cheap)</option>
-                  <option value="gpt-4o">gpt-4o (Highly Creative & Expressive)</option>
-                  <option value="o1-mini">o1-mini (Logical Plotting)</option>
-                </select>
+                <input 
+                  type="text" 
+                  value={settings.openai_model || ''} 
+                  onChange={(e) => updateSetting('openai_model', e.target.value)} 
+                  className="input" 
+                  placeholder="e.g. gpt-4o, gpt-4o-mini"
+                  required 
+                />
               </div>
             </div>
           </div>
@@ -224,13 +335,13 @@ export const Settings: React.FC<SettingsProps> = ({ apiBase, onSettingsSaved }) 
         {activeProvider === 'anthropic' && (
           <div className="glass-panel" style={{ padding: '20px', border: '1px solid var(--border-light)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-              <Key size={18} style={{ color: 'var(--primary)' }} />
-              <h3 style={{ color: '#ffffff', fontSize: '16px' }}>Anthropic Credentials</h3>
+              <Key size={18} style={{ color: 'var(--secondary)' }} />
+              <h3 style={{ color: '#ffffff', fontSize: '16px' }}>Anthropic Configuration</h3>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label className="label">API Key</label>
+                <label className="label">Anthropic API Key</label>
                 <input 
                   type="password" 
                   value={settings.anthropic_api_key || ''} 
@@ -243,14 +354,14 @@ export const Settings: React.FC<SettingsProps> = ({ apiBase, onSettingsSaved }) 
 
               <div>
                 <label className="label">Model</label>
-                <select
-                  value={settings.anthropic_model || 'claude-3-5-sonnet-20240620'}
-                  onChange={(e) => updateSetting('anthropic_model', e.target.value)}
-                  className="input"
-                >
-                  <option value="claude-3-5-sonnet-20240620">claude-3-5-sonnet (Superb Narrative Tone)</option>
-                  <option value="claude-3-haiku-20240307">claude-3-haiku (Faster Execution)</option>
-                </select>
+                <input 
+                  type="text" 
+                  value={settings.anthropic_model || ''} 
+                  onChange={(e) => updateSetting('anthropic_model', e.target.value)} 
+                  className="input" 
+                  placeholder="e.g. claude-3-5-sonnet-20240620"
+                  required 
+                />
               </div>
             </div>
           </div>
@@ -260,13 +371,13 @@ export const Settings: React.FC<SettingsProps> = ({ apiBase, onSettingsSaved }) 
         {activeProvider === 'openrouter' && (
           <div className="glass-panel" style={{ padding: '20px', border: '1px solid var(--border-light)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-              <Key size={18} style={{ color: 'var(--primary)' }} />
-              <h3 style={{ color: '#ffffff', fontSize: '16px' }}>OpenRouter Credentials</h3>
+              <Key size={18} style={{ color: 'var(--accent)' }} />
+              <h3 style={{ color: '#ffffff', fontSize: '16px' }}>OpenRouter Configuration</h3>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label className="label">API Key</label>
+                <label className="label">OpenRouter API Key</label>
                 <input 
                   type="password" 
                   value={settings.openrouter_api_key || ''} 
@@ -278,13 +389,13 @@ export const Settings: React.FC<SettingsProps> = ({ apiBase, onSettingsSaved }) 
               </div>
 
               <div>
-                <label className="label">Model Tag</label>
+                <label className="label">Model Path</label>
                 <input 
                   type="text" 
                   value={settings.openrouter_model || ''} 
                   onChange={(e) => updateSetting('openrouter_model', e.target.value)} 
                   className="input" 
-                  placeholder="e.g. meta-llama/llama-3-8b-instruct:free, mistralai/mixtral-8x7b-instruct"
+                  placeholder="e.g. meta-llama/llama-3-8b-instruct:free"
                   required 
                 />
               </div>
@@ -292,118 +403,17 @@ export const Settings: React.FC<SettingsProps> = ({ apiBase, onSettingsSaved }) 
           </div>
         )}
 
-        {/* 5. Writing Style & Prompt Studio */}
-        <div className="glass-panel" style={{ padding: '20px', border: '1px solid var(--border-light)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-            <Sparkles size={18} style={{ color: 'var(--primary)' }} />
-            <h3 style={{ color: '#ffffff', fontSize: '16px' }}>Writing Style & Prompt Studio</h3>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
-              {/* Point of View */}
-              <div>
-                <label className="label">Default Point of View (POV)</label>
-                <select
-                  value={settings.writing_pov || 'third_limited'}
-                  onChange={(e) => updateSetting('writing_pov', e.target.value)}
-                  className="input"
-                >
-                  <option value="third_limited">3rd Person Limited (He/She/They - Deep POV)</option>
-                  <option value="first_person">1st Person (I / Me / We)</option>
-                  <option value="third_omniscient">3rd Person Omniscient (All-knowing)</option>
-                  <option value="second_person">2nd Person (You / Your)</option>
-                </select>
-              </div>
-
-              {/* Tense */}
-              <div>
-                <label className="label">Default Tense</label>
-                <select
-                  value={settings.writing_tense || 'past'}
-                  onChange={(e) => updateSetting('writing_tense', e.target.value)}
-                  className="input"
-                >
-                  <option value="past">Past Tense (walked, said, stared)</option>
-                  <option value="present">Present Tense (walks, says, stares)</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Tone & Atmosphere */}
-            <div>
-              <label className="label">Tone & Atmosphere Preset</label>
-              <select
-                value={settings.writing_tone || 'Balanced Narrative'}
-                onChange={(e) => updateSetting('writing_tone', e.target.value)}
-                className="input"
-              >
-                <option value="Balanced Narrative">Balanced Narrative (Polished, standard contemporary prose)</option>
-                <option value="Grimdark & Gritty">Grimdark & Gritty (Visceral, cynical, atmospheric)</option>
-                <option value="Lyrical & Atmospheric">Lyrical & Atmospheric (Poetic imagery, slow sensory build)</option>
-                <option value="Fast-Paced Action">Fast-Paced Action (Short punchy sentences, high tension)</option>
-                <option value="Humorous & Witty">Humorous & Witty (Snarky dialogue, comedic timing)</option>
-                <option value="Cozy & Whimsical">Cozy & Whimsical (Warm, gentle, charming world details)</option>
-              </select>
-            </div>
-
-            {/* Custom Guidelines */}
-            <div>
-              <label className="label">Custom Author Guidelines & Negative Rules</label>
-              <textarea
-                value={settings.writing_custom_rules || ''}
-                onChange={(e) => updateSetting('writing_custom_rules', e.target.value)}
-                className="input"
-                rows={3}
-                placeholder="e.g. Avoid clichés, prioritize sensory smell/sound details, keep dialogue subtext-heavy without excessive adverbs."
-                style={{ resize: 'vertical' }}
-              />
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                Injected into all Co-Writer prompts and chat instructions automatically.
-              </span>
-            </div>
-
-            {/* Custom Continue Template */}
-            <div>
-              <label className="label">Custom "Continue Writing" Instruction (Optional)</label>
-              <input
-                type="text"
-                value={settings.prompt_template_continue || ''}
-                onChange={(e) => updateSetting('prompt_template_continue', e.target.value)}
-                className="input"
-                placeholder="Leave blank for standard default continue prompt"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Submit Actions */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '10px' }}>
-          <button 
-            type="submit" 
-            className="btn btn-primary"
-            disabled={saving}
-            style={{ padding: '10px 24px' }}
-          >
-            <Save size={16} /> {saving ? 'Saving...' : 'Save Configuration'}
-          </button>
-          
+        {/* Submit */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px' }}>
           {savedMessage && (
-            <div 
-              style={{ 
-                color: 'var(--status-done)', 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '6px', 
-                fontSize: '13px',
-                animation: 'fadeIn 0.2s ease-out'
-              }}
-            >
-              <CheckCircle2 size={16} /> Configuration saved and applied!
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--status-done)', fontSize: '13px' }}>
+              <CheckCircle2 size={16} /> Preferences saved successfully!
             </div>
           )}
+          <button type="submit" className="btn btn-primary" disabled={saving}>
+            <Save size={16} /> {saving ? 'Saving...' : 'Save Settings'}
+          </button>
         </div>
-
       </form>
     </div>
   );

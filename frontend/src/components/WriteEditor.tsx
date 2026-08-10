@@ -949,29 +949,45 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
             </div>
 
             {/* Main Rich text editor area with @ Mention Autocomplete Overlay */}
-            <div style={{ flex: 1, padding: '40px 60px', overflowY: 'auto', display: 'flex', justifyContent: 'center', position: 'relative' }}>
-              <textarea
-                ref={editorRef}
-                value={editorText}
-                onChange={handleEditorChange}
-                onSelect={handleTextSelect}
-                onKeyDown={handleKeyDown}
-                placeholder="Once upon a time, in a land forgotten by cartographers... (Type @ to mention Codex characters & lore)"
+            <div style={{ flex: 1, padding: '24px 30px', overflowY: 'auto', display: 'flex', justifyContent: 'center', position: 'relative', background: 'var(--bg-app)' }}>
+              <div 
                 style={{
                   width: '100%',
-                  maxWidth: '750px',
-                  height: '100%',
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'rgba(255,255,255,0.9)',
-                  fontFamily: 'var(--font-sans)',
-                  fontSize: '17px',
-                  lineHeight: '1.8',
-                  resize: 'none',
-                  outline: 'none',
-                  paddingBottom: '200px'
+                  maxWidth: '820px',
+                  background: 'var(--bg-editor-canvas)',
+                  color: 'var(--text-editor-canvas)',
+                  borderRadius: 'var(--radius-md)',
+                  boxShadow: 'var(--shadow-paper)',
+                  border: '1px solid var(--border-light)',
+                  padding: '40px 50px',
+                  minHeight: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  position: 'relative'
                 }}
-              />
+              >
+                <textarea
+                  ref={editorRef}
+                  value={editorText}
+                  onChange={handleEditorChange}
+                  onSelect={handleTextSelect}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Once upon a time, in a land forgotten by cartographers... (Type @ to mention Codex characters & lore)"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    minHeight: '650px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-editor-canvas)',
+                    fontFamily: 'var(--font-editor)',
+                    fontSize: '16px',
+                    lineHeight: '1.9',
+                    resize: 'none',
+                    outline: 'none'
+                  }}
+                />
+              </div>
 
               {/* Floating @ Mention Autocomplete Dropdown */}
               {mentionQuery !== null && filteredMentions.length > 0 && (
