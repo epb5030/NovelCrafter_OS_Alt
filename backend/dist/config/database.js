@@ -94,6 +94,21 @@ async function initializeSchema(db) {
       FOREIGN KEY(scene_id) REFERENCES outline_elements(id) ON DELETE CASCADE
     )
   `);
+    // Codex Relationships (for entity connection graphs)
+    await db.exec(`
+    CREATE TABLE IF NOT EXISTS codex_relationships (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      source_id INTEGER NOT NULL,
+      target_id INTEGER NOT NULL,
+      relationship_type TEXT NOT NULL, -- 'ally', 'enemy', 'rival', 'family', 'located_in', 'owns', 'member_of', 'associated'
+      description TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY(source_id) REFERENCES codex_entries(id) ON DELETE CASCADE,
+      FOREIGN KEY(target_id) REFERENCES codex_entries(id) ON DELETE CASCADE
+    )
+  `);
     // Settings table for storing local configs & credentials securely (API keys)
     await db.exec(`
     CREATE TABLE IF NOT EXISTS settings (

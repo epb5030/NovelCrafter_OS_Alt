@@ -7,6 +7,7 @@ import { OutlinePlanner } from './components/OutlinePlanner';
 import { CodexManager } from './components/CodexManager';
 import { Settings } from './components/Settings';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
+import { ExportModal } from './components/ExportModal';
 
 const API_BASE = import.meta.env.DEV ? 'http://localhost:3005/api' : '/api';
 
@@ -16,6 +17,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<string>('write');
   const [activeProvider, setActiveProvider] = useState<string>('ollama');
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
+  const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
 
   // Fetch active provider on load & settings changes
   const fetchActiveProvider = async () => {
@@ -136,6 +138,7 @@ function App() {
         onBackToDashboard={handleBackToDashboard}
         activeProvider={activeProvider}
         onOpenSearch={() => setIsSearchOpen(true)}
+        onOpenExport={() => setIsExportOpen(true)}
       >
         {renderTabContent()}
       </Layout>
@@ -158,6 +161,15 @@ function App() {
           setActiveTab('outline');
           setIsSearchOpen(false);
         }}
+      />
+
+      {/* Export Studio Modal */}
+      <ExportModal
+        projectId={activeProjectId}
+        projectName={activeProject.title}
+        apiBase={API_BASE}
+        isOpen={isExportOpen}
+        onClose={() => setIsExportOpen(false)}
       />
     </>
   );

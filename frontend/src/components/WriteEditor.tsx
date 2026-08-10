@@ -24,7 +24,9 @@ import {
   User,
   MapPin,
   Package,
-  FileText
+  FileText,
+  Timer,
+  Flame
 } from 'lucide-react';
 import type { CodexEntry } from './CodexManager';
 import type { OutlineElement } from './OutlinePlanner';
@@ -97,8 +99,22 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
   const [selectedMentionIdx, setSelectedMentionIdx] = useState<number>(0);
   const [activeLorePreview, setActiveLorePreview] = useState<CodexEntry | null>(null);
 
+  // Writing Sprint Timer States
+  const [isSprintModalOpen, setIsSprintModalOpen] = useState(false);
+  const [sprintDurationMinutes, setSprintDurationMinutes] = useState(15);
+  const [sprintActive, setSprintActive] = useState(false);
+  const [sprintTimeLeft, setSprintTimeLeft] = useState(0);
+  const [sprintStartWords, setSprintStartWords] = useState(0);
+  const [sprintWordsWritten, setSprintWordsWritten] = useState(0);
+  const [sprintSummary, setSprintSummary] = useState<{ words: number; minutes: number; wpm: number } | null>(null);
+
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const autosaveTimeoutRef = useRef<any>(null);
+  const sprintIntervalRef = useRef<any>(null);
+
+  const getCurrentWordCount = (text: string) => {
+    return text.trim() ? text.trim().split(/\s+/).filter(Boolean).length : 0;
+  };
 
   // Fetch initial structure
   const fetchStructure = async () => {
@@ -160,9 +176,14 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
       const res = await fetch(`${apiBase}/scenes/${sceneId}/content`);
       if (res.ok) {
         const data = await res.json();
-        setEditorText(data.content || '');
+        const initialText = data.content || '';
+        setEditorText(initialText);
         if (data.last_saved_at) {
           setLastSaved(new Date(data.last_saved_at).toLocaleTimeString());
+        }
+
+        if (sprintActive) {
+          setSprintStartWords(getCurrentWordCount(initialText));
         }
       }
       fetchSnapshots(sceneId);
@@ -171,11 +192,62 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
     }
   };
 
+  // Sprint Timer Countdown effect
+  useEffect(() => {
+    if (sprintActive && sprintTimeLeft > 0) {
+      sprintIntervalRef.current = setInterval(() => {
+        setSprintTimeLeft(prev => {
+          if (prev <= 1) {
+            clearInterval(sprintIntervalRef.current);
+            setSprintActive(false);
+            const words = sprintWordsWritten;
+            const minutes = sprintDurationMinutes;
+            const wpm = minutes > 0 ? Math.round(words / minutes) : words;
+            setSprintSummary({ words, minutes, wpm });
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(sprintIntervalRef.current);
+    }
+
+    return () => clearInterval(sprintIntervalRef.current);
+  }, [sprintActive, sprintWordsWritten, sprintDurationMinutes]);
+
+  const handleStartSprint = (minutes: number) => {
+    const currentWords = getCurrentWordCount(editorText);
+    setSprintDurationMinutes(minutes);
+    setSprintTimeLeft(minutes * 60);
+    setSprintStartWords(currentWords);
+    setSprintWordsWritten(0);
+    setSprintActive(true);
+    setSprintSummary(null);
+    setIsSprintModalOpen(false);
+  };
+
+  const handleStopSprint = () => {
+    clearInterval(sprintIntervalRef.current);
+    setSprintActive(false);
+    const elapsedMinutes = Math.max(1, Math.round((sprintDurationMinutes * 60 - sprintTimeLeft) / 60));
+    const words = sprintWordsWritten;
+    const wpm = Math.round(words / elapsedMinutes);
+    setSprintSummary({ words, minutes: elapsedMinutes, wpm });
+  };
+
   // Autosave content & Check @ Mention trigger
   const handleEditorChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     const cursorPos = e.target.selectionStart;
     setEditorText(value);
+
+    // Update sprint word count delta
+    if (sprintActive) {
+      const currentWords = getCurrentWordCount(value);
+      const delta = Math.max(0, currentWords - sprintStartWords);
+      setSprintWordsWritten(delta);
+    }
 
     // Check if user is typing an @ mention
     const textBeforeCursor = value.substring(0, cursorPos);
@@ -183,7 +255,6 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
 
     if (lastAtIdx !== -1) {
       const textAfterAt = textBeforeCursor.substring(lastAtIdx + 1);
-      // Valid mention if no whitespace or newline between @ and cursor, and length <= 25
       if (!/\s/.test(textAfterAt) && textAfterAt.length <= 25) {
         setMentionQuery(textAfterAt.toLowerCase());
         setMentionIndex(lastAtIdx);
@@ -408,7 +479,6 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
 
     try {
       if (action === 'continue') {
-        // Take safety snapshot before modifying text
         await createPreAISnapshot(activeSceneId, editorText, 'Continue');
 
         const space = editorText.endsWith(' ') || editorText.endsWith('\n') || editorText.length === 0 ? '' : ' ';
@@ -427,7 +497,6 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
           }
         );
 
-        // Save on completion
         await saveSceneContent(activeSceneId, currentFullText);
       } else if (action === 'rewrite') {
         if (!selection) {
@@ -470,7 +539,6 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
           }
         );
 
-        // Save summary back to outline
         await fetch(`${apiBase}/projects/${projectId}/outline/${activeSceneId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -500,7 +568,6 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
   const handleApplyRewrite = async () => {
     if (!activeSceneId || !editorRef.current || !streamedRewriteResult) return;
     
-    // Safety snapshot
     await createPreAISnapshot(activeSceneId, editorText, 'Rewrite Selection');
 
     const start = editorRef.current.selectionStart;
@@ -534,7 +601,6 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
       ...(styleTone !== 'default' ? { tone: styleTone } : {})
     };
 
-    // Add placeholder assistant message for live streaming tokens
     const assistantIndex = initialHistory.length;
     setChatMessages(prev => [...prev, { role: 'assistant', content: '' }]);
 
@@ -710,6 +776,12 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
       case 'item': return <Package size={13} style={{ color: '#fbbf24' }} />;
       default: return <FileText size={13} style={{ color: 'var(--text-secondary)' }} />;
     }
+  };
+
+  const formatSprintTimer = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
   return (
@@ -981,7 +1053,7 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
               )}
             </div>
 
-            {/* Word Count & Status Footer */}
+            {/* Word Count & Sprint Status Footer */}
             <div 
               style={{ 
                 padding: '8px 24px', 
@@ -990,14 +1062,40 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
                 color: 'var(--text-muted)', 
                 display: 'flex', 
                 justifyContent: 'space-between',
+                alignItems: 'center',
                 flexShrink: 0,
                 background: 'rgba(0, 0, 0, 0.2)'
               }}
             >
-              <div style={{ display: 'flex', gap: '16px' }}>
-                <span>Words: {editorText ? editorText.trim().split(/\s+/).filter(Boolean).length : 0}</span>
+              <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                <span>Words: {getCurrentWordCount(editorText)}</span>
                 <span>Characters: {editorText.length}</span>
+
+                {/* Sprint Timer Widget */}
+                {sprintActive ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '2px 8px', background: 'rgba(234, 179, 8, 0.15)', border: '1px solid rgba(234, 179, 8, 0.3)', borderRadius: '6px', color: '#fde047' }}>
+                    <Flame size={13} className="spin" />
+                    <strong>{formatSprintTimer(sprintTimeLeft)}</strong>
+                    <span>(+{sprintWordsWritten} words)</span>
+                    <button 
+                      onClick={handleStopSprint}
+                      style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '11px', textDecoration: 'underline' }}
+                    >
+                      Finish Sprint
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setIsSprintModalOpen(true)}
+                    className="btn btn-secondary"
+                    style={{ padding: '2px 8px', fontSize: '11px', gap: '4px' }}
+                    title="Start a timed writing sprint"
+                  >
+                    <Timer size={12} style={{ color: 'var(--secondary)' }} /> Start Sprint
+                  </button>
+                )}
               </div>
+
               <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                 {streamingAction && (
                   <span style={{ color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1147,7 +1245,7 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {detectedCodex.map(item => (
                         <div 
-                          key={item.id}
+                          key={item.id} 
                           onClick={() => setActiveLorePreview(item)}
                           style={{
                             padding: '10px',
@@ -1432,6 +1530,87 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
 
           </div>
         </aside>
+      )}
+
+      {/* SPRINT CONFIGURATION MODAL */}
+      {isSprintModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '400px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Timer size={18} style={{ color: 'var(--secondary)' }} />
+                <h3 style={{ fontSize: '18px', color: '#ffffff', fontFamily: 'var(--font-display)' }}>Start Writing Sprint</h3>
+              </div>
+              <button onClick={() => setIsSprintModalOpen(false)} className="btn btn-secondary" style={{ padding: '4px' }}>
+                <X size={14} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              Timed sprint mode locks distraction out and records how many words you draft within the target window.
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '16px' }}>
+              {[15, 20, 30].map(mins => (
+                <button
+                  key={mins}
+                  type="button"
+                  onClick={() => handleStartSprint(mins)}
+                  className="btn btn-secondary"
+                  style={{ padding: '12px 6px', flexDirection: 'column', gap: '2px', borderColor: mins === 20 ? 'var(--primary)' : undefined }}
+                >
+                  <span style={{ fontSize: '16px', fontWeight: 700, color: '#ffffff' }}>{mins} min</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{mins === 20 ? 'Pomodoro' : 'Sprint'}</span>
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button onClick={() => setIsSprintModalOpen(false)} className="btn btn-secondary">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SPRINT CELEBRATION SUMMARY MODAL */}
+      {sprintSummary && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '420px', textAlign: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'rgba(234, 179, 8, 0.2)', border: '2px solid #fde047', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Flame size={28} style={{ color: '#fde047' }} />
+              </div>
+            </div>
+
+            <h3 style={{ fontSize: '20px', color: '#ffffff', fontFamily: 'var(--font-display)', marginBottom: '6px' }}>
+              Sprint Complete!
+            </h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+              Great drafting session! Here are your sprint results:
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '20px' }}>
+              <div className="glass-panel" style={{ padding: '12px 6px' }}>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: '#4ade80' }}>+{sprintSummary.words}</div>
+                <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Words Written</div>
+              </div>
+              <div className="glass-panel" style={{ padding: '12px 6px' }}>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: '#ffffff' }}>{sprintSummary.minutes}m</div>
+                <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Duration</div>
+              </div>
+              <div className="glass-panel" style={{ padding: '12px 6px' }}>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: 'var(--primary)' }}>{sprintSummary.wpm}</div>
+                <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Words / Min</div>
+              </div>
+            </div>
+
+            <button onClick={() => setSprintSummary(null)} className="btn btn-primary" style={{ width: '100%' }}>
+              Awesome, Keep Writing!
+            </button>
+          </div>
+        </div>
       )}
 
       {/* QUICK LORE PREVIEW MODAL */}

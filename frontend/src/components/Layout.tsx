@@ -6,7 +6,8 @@ import {
   Settings as SettingsIcon, 
   ChevronLeft, 
   Sparkles,
-  Search
+  Search,
+  Download
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -17,6 +18,7 @@ interface LayoutProps {
   onBackToDashboard: () => void;
   activeProvider: string;
   onOpenSearch?: () => void;
+  onOpenExport?: () => void;
 }
 
 export const Layout: React.FC<LayoutProps> = ({
@@ -26,7 +28,8 @@ export const Layout: React.FC<LayoutProps> = ({
   projectName,
   onBackToDashboard,
   activeProvider,
-  onOpenSearch
+  onOpenSearch,
+  onOpenExport
 }) => {
   const menuItems = [
     { id: 'write', label: 'Write', icon: BookOpen },
@@ -102,9 +105,9 @@ export const Layout: React.FC<LayoutProps> = ({
           </div>
         </div>
 
-        {/* Global Search Shortcut Button */}
-        {onOpenSearch && (
-          <div style={{ padding: '12px 16px 4px 16px' }}>
+        {/* Global Action Buttons */}
+        <div style={{ padding: '12px 16px 4px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          {onOpenSearch && (
             <button
               onClick={onOpenSearch}
               className="btn btn-secondary"
@@ -125,8 +128,28 @@ export const Layout: React.FC<LayoutProps> = ({
                 Ctrl+K
               </kbd>
             </button>
-          </div>
-        )}
+          )}
+
+          {onOpenExport && (
+            <button
+              onClick={onOpenExport}
+              className="btn btn-secondary"
+              style={{
+                width: '100%',
+                justifyContent: 'flex-start',
+                padding: '8px 12px',
+                fontSize: '12px',
+                color: 'var(--text-secondary)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                background: 'rgba(0,0,0,0.2)'
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Download size={14} style={{ color: 'var(--secondary)' }} /> Export Studio...
+              </span>
+            </button>
+          )}
+        </div>
 
         {/* Menu Items */}
         <nav style={{ padding: '12px 8px', flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>

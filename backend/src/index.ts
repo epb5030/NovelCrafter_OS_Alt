@@ -133,6 +133,282 @@ app.get('/api/projects/:id/export', async (req, res) => {
   }
 });
 
+// Export compiled full manuscript (Markdown or Printable HTML)
+app.get('/api/projects/:projectId/export/manuscript', async (req, res) => {
+  try {
+    const db = await getDatabase();
+    const projectId = req.params.projectId;
+    const format = (req.query.format as string || 'markdown').toLowerCase();
+    const includeActs = req.query.includeActs !== 'false';
+    const includeSummaries = req.query.includeSummaries === 'true';
+    const sceneDivider = req.query.sceneDivider !== undefined ? (req.query.sceneDivider as string) : '* * *';
+    const shouldDownload = req.query.download === 'true';
+
+    const project = await db.get('SELECT * FROM projects WHERE id = ?', projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const outline = await db.all('SELECT * FROM outline_elements WHERE project_id = ? ORDER BY position ASC', projectId);
+    const sceneRows = await db.all(`
+      SELECT o.id, sc.content 
+      FROM outline_elements o
+      LEFT JOIN scene_contents sc ON o.id = sc.scene_id
+      WHERE o.project_id = ? AND o.type = 'scene'
+    `, projectId);
+
+    const contentMap: Record<number, string> = {};
+    for (const row of sceneRows) {
+      contentMap[row.id] = row.content || '';
+    }
+
+    const acts = outline.filter(el => el.type === 'act').sort((a, b) => a.position - b.position);
+    const chapters = outline.filter(el => el.type === 'chapter').sort((a, b) => a.position - b.position);
+    const scenes = outline.filter(el => el.type === 'scene').sort((a, b) => a.position - b.position);
+
+    const safeTitle = (project.title || 'Novel').replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    if (format === 'html') {
+      // Build Printable HTML Document
+      let html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>${project.title}</title>
+  <style>
+    @page { margin: 1.25in 1in; size: letter; }
+    body {
+      font-family: 'Merriweather', Georgia, 'Times New Roman', serif;
+      line-height: 1.8;
+      color: #111827;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      background: #ffffff;
+    }
+    h1.novel-title {
+      font-size: 32px;
+      text-align: center;
+      margin-top: 60px;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+    .novel-genre {
+      text-align: center;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #6b7280;
+      margin-bottom: 80px;
+    }
+    .act-title {
+      page-break-before: always;
+      text-align: center;
+      font-size: 26px;
+      margin-top: 100px;
+      margin-bottom: 60px;
+      letter-spacing: 0.05em;
+    }
+    .chapter-title {
+      page-break-before: always;
+      font-size: 20px;
+      margin-top: 50px;
+      margin-bottom: 30px;
+      font-weight: 600;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 10px;
+    }
+    .scene-content {
+      margin-bottom: 24px;
+      white-space: pre-wrap;
+      font-size: 16px;
+      text-align: justify;
+    }
+    .scene-divider {
+      text-align: center;
+      margin: 36px 0;
+      font-weight: bold;
+      color: #9ca3af;
+      letter-spacing: 0.3em;
+    }
+  </style>
+</head>
+<body>
+  <h1 class="novel-title">${project.title}</h1>
+  <div class="novel-genre">${project.genre || 'Manuscript'}</div>
+`;
+
+      const renderChapterHTML = (chap: any) => {
+        let chHtml = `<h2 class="chapter-title">${chap.title}</h2>\n`;
+        if (includeSummaries && chap.summary) {
+          chHtml += `<p style="font-style: italic; color: #6b7280;"><em>${chap.summary}</em></p>\n`;
+        }
+        const chapScenes = scenes.filter(s => s.parent_id === chap.id).sort((a, b) => a.position - b.position);
+        chapScenes.forEach((sc, idx) => {
+          if (idx > 0 && sceneDivider) {
+            chHtml += `<div class="scene-divider">${sceneDivider}</div>\n`;
+          }
+          const text = contentMap[sc.id] || '';
+          chHtml += `<div class="scene-content">${text}</div>\n`;
+        });
+        return chHtml;
+      };
+
+      if (acts.length > 0) {
+        for (const act of acts) {
+          if (includeActs) {
+            html += `<h2 class="act-title">${act.title}</h2>\n`;
+          }
+          const actChapters = chapters.filter(c => c.parent_id === act.id).sort((a, b) => a.position - b.position);
+          for (const chap of actChapters) {
+            html += renderChapterHTML(chap);
+          }
+        }
+      } else {
+        for (const chap of chapters) {
+          html += renderChapterHTML(chap);
+        }
+      }
+
+      // Render orphan scenes
+      const orphanScenes = scenes.filter(s => !s.parent_id);
+      if (orphanScenes.length > 0) {
+        html += `<h2 class="chapter-title">Additional Scenes</h2>\n`;
+        orphanScenes.forEach((sc, idx) => {
+          if (idx > 0 && sceneDivider) {
+            html += `<div class="scene-divider">${sceneDivider}</div>\n`;
+          }
+          html += `<div class="scene-content">${contentMap[sc.id] || ''}</div>\n`;
+        });
+      }
+
+      html += `</body></html>`;
+
+      if (shouldDownload) {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}_manuscript.html"`);
+      }
+      return res.send(html);
+    } else {
+      // Build Markdown Document
+      let md = `# ${project.title}\n\n`;
+      if (project.genre) md += `**Genre:** ${project.genre}\n\n`;
+      if (project.summary) md += `> ${project.summary}\n\n---\n\n`;
+
+      const renderChapterMD = (chap: any) => {
+        let chMd = `## ${chap.title}\n\n`;
+        if (includeSummaries && chap.summary) {
+          chMd += `*${chap.summary}*\n\n`;
+        }
+        const chapScenes = scenes.filter(s => s.parent_id === chap.id).sort((a, b) => a.position - b.position);
+        chapScenes.forEach((sc, idx) => {
+          if (idx > 0 && sceneDivider) {
+            chMd += `\n\n${sceneDivider}\n\n`;
+          }
+          const text = contentMap[sc.id] || '';
+          chMd += `${text}\n`;
+        });
+        chMd += '\n\n';
+        return chMd;
+      };
+
+      if (acts.length > 0) {
+        for (const act of acts) {
+          if (includeActs) {
+            md += `# ${act.title}\n\n`;
+          }
+          const actChapters = chapters.filter(c => c.parent_id === act.id).sort((a, b) => a.position - b.position);
+          for (const chap of actChapters) {
+            md += renderChapterMD(chap);
+          }
+        }
+      } else {
+        for (const chap of chapters) {
+          md += renderChapterMD(chap);
+        }
+      }
+
+      const orphanScenes = scenes.filter(s => !s.parent_id);
+      if (orphanScenes.length > 0) {
+        md += `## Additional Scenes\n\n`;
+        orphanScenes.forEach((sc, idx) => {
+          if (idx > 0 && sceneDivider) {
+            md += `\n\n${sceneDivider}\n\n`;
+          }
+          md += `${contentMap[sc.id] || ''}\n`;
+        });
+      }
+
+      if (shouldDownload) {
+        res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}_manuscript.md"`);
+      }
+      return res.send(md);
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Export Codex Story Bible as Formatted Markdown
+app.get('/api/projects/:projectId/export/codex-bible', async (req, res) => {
+  try {
+    const db = await getDatabase();
+    const projectId = req.params.projectId;
+    const shouldDownload = req.query.download === 'true';
+
+    const project = await db.get('SELECT * FROM projects WHERE id = ?', projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const codex = await db.all('SELECT * FROM codex_entries WHERE project_id = ? ORDER BY category, name ASC', projectId);
+    const relationships = await db.all(`
+      SELECT r.*, s.name as source_name, t.name as target_name 
+      FROM codex_relationships r
+      JOIN codex_entries s ON r.source_id = s.id
+      JOIN codex_entries t ON r.target_id = t.id
+      WHERE r.project_id = ?
+    `, projectId);
+
+    const safeTitle = (project.title || 'Novel').replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    let bibleMd = `# Codex Story Bible: ${project.title}\n\n`;
+    bibleMd += `Generated reference guide for worldbuilding, characters, factions, and locations.\n\n---\n\n`;
+
+    const categories = Array.from(new Set(codex.map(c => c.category)));
+
+    for (const cat of categories) {
+      bibleMd += `## ${cat.toUpperCase()}\n\n`;
+      const entries = codex.filter(c => c.category === cat);
+      for (const entry of entries) {
+        bibleMd += `### ${entry.name}\n\n`;
+        if (entry.aliases) bibleMd += `**Aliases:** ${entry.aliases}\n\n`;
+        if (entry.description) bibleMd += `${entry.description}\n\n`;
+        if (entry.notes) bibleMd += `*Author Notes:* ${entry.notes}\n\n`;
+
+        // Check relationships
+        const rels = relationships.filter(r => r.source_id === entry.id || r.target_id === entry.id);
+        if (rels.length > 0) {
+          bibleMd += `**Relationships & Connections:**\n`;
+          for (const rel of rels) {
+            const isSource = rel.source_id === entry.id;
+            const otherName = isSource ? rel.target_name : rel.source_name;
+            const desc = rel.description ? ` (${rel.description})` : '';
+            bibleMd += `- **${rel.relationship_type.replace('_', ' ')}**: ${otherName}${desc}\n`;
+          }
+          bibleMd += '\n';
+        }
+      }
+      bibleMd += '---\n\n';
+    }
+
+    if (shouldDownload) {
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}_codex_bible.md"`);
+    }
+    return res.send(bibleMd);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Import project from JSON file
 app.post('/api/projects/import', async (req, res) => {
   const { project, codex, outline, scene_contents } = req.body;
@@ -295,6 +571,96 @@ app.delete('/api/projects/:projectId/codex/:id', async (req, res) => {
     await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', req.params.projectId);
 
     res.json({ success: true, message: `Codex entry ${req.params.id} deleted.` });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// 2B. CODEX RELATIONSHIPS GRAPH API
+// ==========================================
+
+// Get relationships for project with entity names & categories
+app.get('/api/projects/:projectId/codex-relationships', async (req, res) => {
+  try {
+    const db = await getDatabase();
+    const relationships = await db.all(`
+      SELECT 
+        r.id,
+        r.project_id,
+        r.source_id,
+        r.target_id,
+        r.relationship_type,
+        r.description,
+        r.created_at,
+        s.name as source_name,
+        s.category as source_category,
+        t.name as target_name,
+        t.category as target_category
+      FROM codex_relationships r
+      JOIN codex_entries s ON r.source_id = s.id
+      JOIN codex_entries t ON r.target_id = t.id
+      WHERE r.project_id = ?
+      ORDER BY r.created_at ASC
+    `, req.params.projectId);
+
+    res.json(relationships);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create relationship between two Codex entries
+app.post('/api/projects/:projectId/codex-relationships', async (req, res) => {
+  const { source_id, target_id, relationship_type, description } = req.body;
+  if (!source_id || !target_id || !relationship_type) {
+    return res.status(400).json({ error: 'source_id, target_id, and relationship_type are required' });
+  }
+
+  if (source_id === target_id) {
+    return res.status(400).json({ error: 'An entity cannot have a relationship with itself' });
+  }
+
+  try {
+    const db = await getDatabase();
+    const result = await db.run(`
+      INSERT INTO codex_relationships (project_id, source_id, target_id, relationship_type, description)
+      VALUES (?, ?, ?, ?, ?)
+    `, req.params.projectId, source_id, target_id, relationship_type, description || '');
+
+    const newRel = await db.get(`
+      SELECT 
+        r.id,
+        r.project_id,
+        r.source_id,
+        r.target_id,
+        r.relationship_type,
+        r.description,
+        r.created_at,
+        s.name as source_name,
+        s.category as source_category,
+        t.name as target_name,
+        t.category as target_category
+      FROM codex_relationships r
+      JOIN codex_entries s ON r.source_id = s.id
+      JOIN codex_entries t ON r.target_id = t.id
+      WHERE r.id = ?
+    `, result.lastID);
+
+    await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', req.params.projectId);
+    res.status(201).json(newRel);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete relationship
+app.delete('/api/projects/:projectId/codex-relationships/:id', async (req, res) => {
+  try {
+    const db = await getDatabase();
+    await db.run('DELETE FROM codex_relationships WHERE id = ? AND project_id = ?', req.params.id, req.params.projectId);
+    await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', req.params.projectId);
+    res.json({ success: true, message: 'Relationship deleted.' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
