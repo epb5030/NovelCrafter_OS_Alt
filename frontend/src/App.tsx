@@ -6,6 +6,7 @@ import { WriteEditor } from './components/WriteEditor';
 import { OutlinePlanner } from './components/OutlinePlanner';
 import { CodexManager } from './components/CodexManager';
 import { Settings } from './components/Settings';
+import { GlobalSearchModal } from './components/GlobalSearchModal';
 
 const API_BASE = import.meta.env.DEV ? 'http://localhost:3005/api' : '/api';
 
@@ -14,6 +15,7 @@ function App() {
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState<string>('write');
   const [activeProvider, setActiveProvider] = useState<string>('ollama');
+  const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
 
   // Fetch active provider on load & settings changes
   const fetchActiveProvider = async () => {
@@ -31,6 +33,21 @@ function App() {
   useEffect(() => {
     fetchActiveProvider();
   }, []);
+
+  // Global Ctrl+K / Cmd+K search shortcut listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (activeProjectId) {
+          setIsSearchOpen((prev) => !prev);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeProjectId]);
 
   // Fetch project details when opened
   useEffect(() => {
@@ -111,15 +128,38 @@ function App() {
   }
 
   return (
-    <Layout
-      activeTab={activeTab}
-      setActiveTab={setActiveTab}
-      projectName={activeProject.title}
-      onBackToDashboard={handleBackToDashboard}
-      activeProvider={activeProvider}
-    >
-      {renderTabContent()}
-    </Layout>
+    <>
+      <Layout
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        projectName={activeProject.title}
+        onBackToDashboard={handleBackToDashboard}
+        activeProvider={activeProvider}
+        onOpenSearch={() => setIsSearchOpen(true)}
+      >
+        {renderTabContent()}
+      </Layout>
+
+      {/* Global Search & Replace Modal */}
+      <GlobalSearchModal
+        projectId={activeProjectId}
+        apiBase={API_BASE}
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        onNavigateToScene={() => {
+          setActiveTab('write');
+          setIsSearchOpen(false);
+        }}
+        onNavigateToCodex={() => {
+          setActiveTab('codex');
+          setIsSearchOpen(false);
+        }}
+        onNavigateToOutline={() => {
+          setActiveTab('outline');
+          setIsSearchOpen(false);
+        }}
+      />
+    </>
   );
 }
 

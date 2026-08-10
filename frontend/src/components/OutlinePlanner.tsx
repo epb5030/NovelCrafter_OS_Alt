@@ -1,5 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, ChevronUp, ChevronDown, Trash2, Settings, Layers } from 'lucide-react';
+import { 
+  Plus, 
+  ChevronUp, 
+  ChevronDown, 
+  Trash2, 
+  Settings, 
+  Layers, 
+  GripVertical, 
+  Folder, 
+  BarChart2
+} from 'lucide-react';
 import type { CodexEntry } from './CodexManager';
 
 export interface OutlineElement {
@@ -22,7 +32,13 @@ interface OutlinePlannerProps {
 export const OutlinePlanner: React.FC<OutlinePlannerProps> = ({ projectId, apiBase }) => {
   const [elements, setElements] = useState<OutlineElement[]>([]);
   const [codex, setCodex] = useState<CodexEntry[]>([]);
+  const [sceneWordCounts, setSceneWordCounts] = useState<Record<number, number>>({});
+  const [totalManuscriptWords, setTotalManuscriptWords] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+
+  // Drag and drop states
+  const [draggedElement, setDraggedElement] = useState<OutlineElement | null>(null);
+  const [dragOverTargetId, setDragOverTargetId] = useState<number | null>(null);
 
   // Inspector / Modal edit states
   const [selectedElement, setSelectedElement] = useState<OutlineElement | null>(null);
@@ -41,19 +57,26 @@ export const OutlinePlanner: React.FC<OutlinePlannerProps> = ({ projectId, apiBa
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [outRes, codexRes] = await Promise.all([
+      const [outRes, codexRes, statsRes] = await Promise.all([
         fetch(`${apiBase}/projects/${projectId}/outline`),
-        fetch(`${apiBase}/projects/${projectId}/codex`)
+        fetch(`${apiBase}/projects/${projectId}/codex`),
+        fetch(`${apiBase}/projects/${projectId}/outline-stats`)
       ]);
-      if (!outRes.ok || !codexRes.ok) throw new Error('Failed to fetch data');
       
-      const outData = await outRes.json();
-      const codexData = await codexRes.json();
-      
-      setElements(outData);
-      setCodex(codexData);
+      if (outRes.ok && codexRes.ok) {
+        const outData = await outRes.json();
+        const codexData = await codexRes.json();
+        setElements(outData);
+        setCodex(codexData);
+      }
+
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        setSceneWordCounts(statsData.sceneWordCounts || {});
+        setTotalManuscriptWords(statsData.totalWords || 0);
+      }
     } catch (err) {
-      console.error(err);
+      console.error('Failed to load outline planner data:', err);
     } finally {
       setLoading(false);
     }
@@ -107,7 +130,6 @@ export const OutlinePlanner: React.FC<OutlinePlannerProps> = ({ projectId, apiBa
     e.preventDefault();
     if (!createTitle.trim()) return;
 
-    // Determine position as max + 1
     const siblingElements = elements.filter(
       el => el.type === createType && el.parent_id === createParentId
     );
@@ -161,38 +183,120 @@ export const OutlinePlanner: React.FC<OutlinePlannerProps> = ({ projectId, apiBa
 
     if (!target || current.type !== target.type || current.parent_id !== target.parent_id) return;
 
-    // Swap positions
     try {
-      await Promise.all([
-        fetch(`${apiBase}/projects/${projectId}/outline/${current.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            parent_id: current.parent_id,
-            title: current.title,
-            position: target.position,
-            summary: current.summary,
-            status: current.status,
-            metadata: current.metadata
-          })
-        }),
-        fetch(`${apiBase}/projects/${projectId}/outline/${target.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            parent_id: target.parent_id,
-            title: target.title,
-            position: current.position,
-            summary: target.summary,
-            status: target.status,
-            metadata: target.metadata
-          })
+      await fetch(`${apiBase}/projects/${projectId}/outline/reorder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: [
+            { id: current.id, parent_id: current.parent_id, position: target.position },
+            { id: target.id, parent_id: target.parent_id, position: current.position }
+          ]
         })
-      ]);
+      });
       await fetchData();
     } catch (err: any) {
       alert(err.message);
     }
+  };
+
+  // Drag and Drop Handlers
+  const handleDragStart = (e: React.DragEvent, item: OutlineElement) => {
+    setDraggedElement(item);
+    e.dataTransfer.setData('application/json', JSON.stringify(item));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, targetItem: OutlineElement) => {
+    e.preventDefault();
+    if (draggedElement && draggedElement.id !== targetItem.id) {
+      setDragOverTargetId(targetItem.id);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetItem: OutlineElement) => {
+    e.preventDefault();
+    setDragOverTargetId(null);
+    if (!draggedElement || draggedElement.id === targetItem.id) return;
+
+    const source = draggedElement;
+    let updatedItems: Array<{ id: number; parent_id: number | null; position: number }> = [];
+
+    // Case A: Dropping Scene onto another Scene
+    if (source.type === 'scene' && targetItem.type === 'scene') {
+      const targetParentId = targetItem.parent_id;
+      const siblingScenes = elements
+        .filter(el => el.type === 'scene' && el.parent_id === targetParentId && el.id !== source.id)
+        .sort((a, b) => a.position - b.position);
+
+      const targetIdx = siblingScenes.findIndex(el => el.id === targetItem.id);
+      siblingScenes.splice(targetIdx + 1, 0, { ...source, parent_id: targetParentId });
+
+      updatedItems = siblingScenes.map((el, idx) => ({
+        id: el.id,
+        parent_id: targetParentId,
+        position: idx + 1
+      }));
+    }
+    // Case B: Dropping Scene onto Chapter
+    else if (source.type === 'scene' && targetItem.type === 'chapter') {
+      const siblingScenes = elements
+        .filter(el => el.type === 'scene' && el.parent_id === targetItem.id && el.id !== source.id)
+        .sort((a, b) => a.position - b.position);
+
+      siblingScenes.push({ ...source, parent_id: targetItem.id });
+      updatedItems = siblingScenes.map((el, idx) => ({
+        id: el.id,
+        parent_id: targetItem.id,
+        position: idx + 1
+      }));
+    }
+    // Case C: Dropping Chapter onto Chapter
+    else if (source.type === 'chapter' && targetItem.type === 'chapter') {
+      const targetParentId = targetItem.parent_id;
+      const siblingChapters = elements
+        .filter(el => el.type === 'chapter' && el.parent_id === targetParentId && el.id !== source.id)
+        .sort((a, b) => a.position - b.position);
+
+      const targetIdx = siblingChapters.findIndex(el => el.id === targetItem.id);
+      siblingChapters.splice(targetIdx + 1, 0, { ...source, parent_id: targetParentId });
+
+      updatedItems = siblingChapters.map((el, idx) => ({
+        id: el.id,
+        parent_id: targetParentId,
+        position: idx + 1
+      }));
+    }
+    // Case D: Dropping Act onto Act
+    else if (source.type === 'act' && targetItem.type === 'act') {
+      const actsList = elements
+        .filter(el => el.type === 'act' && el.id !== source.id)
+        .sort((a, b) => a.position - b.position);
+
+      const targetIdx = actsList.findIndex(el => el.id === targetItem.id);
+      actsList.splice(targetIdx + 1, 0, source);
+
+      updatedItems = actsList.map((el, idx) => ({
+        id: el.id,
+        parent_id: null,
+        position: idx + 1
+      }));
+    }
+
+    if (updatedItems.length > 0) {
+      try {
+        await fetch(`${apiBase}/projects/${projectId}/outline/reorder`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: updatedItems })
+        });
+        await fetchData();
+      } catch (err: any) {
+        alert('Failed to reorder outline: ' + err.message);
+      }
+    }
+
+    setDraggedElement(null);
   };
 
   const toggleCodexAttachment = (codexId: number) => {
@@ -212,7 +316,16 @@ export const OutlinePlanner: React.FC<OutlinePlannerProps> = ({ projectId, apiBa
   const getScenesForChapter = (chapterId: number) => 
     elements.filter(el => el.type === 'scene' && el.parent_id === chapterId).sort((a, b) => a.position - b.position);
 
-  // Orphans: items with no valid parents
+  const getChapterWordCount = (chapterId: number) => {
+    const scenes = getScenesForChapter(chapterId);
+    return scenes.reduce((sum, sc) => sum + (sceneWordCounts[sc.id] || 0), 0);
+  };
+
+  const getActWordCount = (actId: number) => {
+    const chapters = getChaptersForAct(actId);
+    return chapters.reduce((sum, ch) => sum + getChapterWordCount(ch.id), 0);
+  };
+
   const orphanChapters = elements.filter(el => el.type === 'chapter' && !el.parent_id).sort((a, b) => a.position - b.position);
   const orphanScenes = elements.filter(el => el.type === 'scene' && !el.parent_id).sort((a, b) => a.position - b.position);
 
@@ -228,16 +341,38 @@ export const OutlinePlanner: React.FC<OutlinePlannerProps> = ({ projectId, apiBa
       }}
       className="animate-fade"
     >
-      {/* Header */}
-      <div style={{ display: 'flex', justifySelf: 'stretch', justifyContent: 'space-between', alignItems: 'center' }}>
+      {/* Header & Manuscript Progress Banner */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <h1 style={{ fontSize: '26px', fontFamily: 'var(--font-display)', color: '#ffffff' }}>Story Outline</h1>
+          <h1 style={{ fontSize: '26px', fontFamily: 'var(--font-display)', color: '#ffffff' }}>Story Outline & Hierarchy</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-            Plan acts, organize scenes, summarize drafts, and associate characters or locations.
+            Drag and drop to sequence acts, reorder chapters, track word count goals, and link Codex lore.
           </p>
         </div>
         
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <div 
+            className="glass-panel" 
+            style={{ 
+              padding: '8px 16px', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '12px', 
+              border: '1px solid rgba(129, 140, 248, 0.3)',
+              borderRadius: '8px'
+            }}
+          >
+            <BarChart2 size={16} style={{ color: 'var(--primary)' }} />
+            <div>
+              <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+                Total Manuscript
+              </div>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: '#ffffff' }}>
+                {totalManuscriptWords.toLocaleString()} <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-secondary)' }}>words</span>
+              </div>
+            </div>
+          </div>
+
           <button 
             className="btn btn-secondary"
             onClick={() => {
@@ -246,17 +381,17 @@ export const OutlinePlanner: React.FC<OutlinePlannerProps> = ({ projectId, apiBa
               setIsCreateOpen(true);
             }}
           >
-            <Layers size={14} /> Add Act
+            <Layers size={14} /> + Act
           </button>
           <button 
             className="btn btn-primary"
             onClick={() => {
               setCreateType('scene');
-              setCreateParentId(null); // Orphan scene by default
+              setCreateParentId(null);
               setIsCreateOpen(true);
             }}
           >
-            <Plus size={14} /> Add Scene
+            <Plus size={14} /> + Scene
           </button>
         </div>
       </div>
@@ -282,7 +417,7 @@ export const OutlinePlanner: React.FC<OutlinePlannerProps> = ({ projectId, apiBa
           <Layers size={48} style={{ color: 'var(--text-muted)' }} />
           <h3 style={{ color: '#ffffff', fontSize: '20px', fontFamily: 'var(--font-display)' }}>Outline is empty</h3>
           <p style={{ maxWidth: '400px', fontSize: '14px' }}>
-            Build your structure! Start by creating an Act, then add Chapters, and finally write Scenes.
+            Build your story structure! Start by creating an Act, then add Chapters, and finally write Scenes.
           </p>
           <button 
             className="btn btn-primary"
@@ -299,243 +434,262 @@ export const OutlinePlanner: React.FC<OutlinePlannerProps> = ({ projectId, apiBa
         <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
           
           {/* 1. Render Hierarchy: Acts -> Chapters -> Scenes */}
-          {acts.map((act, actIdx) => (
-            <div key={act.id} className="glass-panel" style={{ padding: '24px', border: '1px solid var(--border-light)' }}>
-              {/* Act Header */}
+          {acts.map((act, actIdx) => {
+            const actWords = getActWordCount(act.id);
+            const isDragOver = dragOverTargetId === act.id;
+
+            return (
               <div 
+                key={act.id} 
+                className="glass-panel"
+                draggable={true}
+                onDragStart={(e) => handleDragStart(e, act)}
+                onDragOver={(e) => handleDragOver(e, act)}
+                onDrop={(e) => handleDrop(e, act)}
                 style={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'center', 
-                  borderBottom: '1px solid var(--border-light)',
-                  paddingBottom: '12px',
-                  marginBottom: '16px'
+                  padding: '24px', 
+                  border: isDragOver ? '2px dashed var(--primary)' : '1px solid var(--border-light)',
+                  borderRadius: '10px',
+                  transition: 'var(--transition-smooth)'
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span className="badge" style={{ backgroundColor: 'rgba(167, 139, 250, 0.15)', color: 'var(--secondary)' }}>
-                    Act {actIdx + 1}
-                  </span>
-                  <h2 style={{ fontSize: '20px', color: '#ffffff', fontFamily: 'var(--font-display)' }}>{act.title}</h2>
-                </div>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <button 
-                    onClick={() => handleMove(elements.indexOf(act), 'up')}
-                    disabled={actIdx === 0}
-                    className="btn btn-secondary"
-                    style={{ padding: '6px' }}
-                  >
-                    <ChevronUp size={14} />
-                  </button>
-                  <button 
-                    onClick={() => handleMove(elements.indexOf(act), 'down')}
-                    disabled={actIdx === acts.length - 1}
-                    className="btn btn-secondary"
-                    style={{ padding: '6px' }}
-                  >
-                    <ChevronDown size={14} />
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setCreateType('chapter');
-                      setCreateParentId(act.id);
-                      setIsCreateOpen(true);
-                    }}
-                    className="btn btn-secondary"
-                    style={{ padding: '6px 12px', fontSize: '12px' }}
-                  >
-                    + Add Chapter
-                  </button>
-                  <button 
-                    onClick={() => handleOpenEdit(act)}
-                    className="btn btn-secondary"
-                    style={{ padding: '6px' }}
-                  >
-                    <Settings size={14} />
-                  </button>
-                </div>
-              </div>
-
-              {act.summary && (
-                <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px', fontStyle: 'italic' }}>
-                  {act.summary}
-                </p>
-              )}
-
-              {/* Chapters under Act */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                {getChaptersForAct(act.id).map((chap, chapIdx, chapArr) => (
-                  <div 
-                    key={chap.id} 
-                    style={{ 
-                      padding: '16px 20px', 
-                      background: 'rgba(255,255,255,0.02)', 
-                      borderRadius: '8px', 
-                      border: '1px solid rgba(255,255,255,0.04)' 
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                      <h3 style={{ fontSize: '16px', color: '#ffffff' }}>Chapter: {chap.title}</h3>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <button 
-                          onClick={() => handleMove(elements.indexOf(chap), 'up')}
-                          disabled={chapIdx === 0}
-                          className="btn btn-secondary"
-                          style={{ padding: '4px' }}
-                        >
-                          <ChevronUp size={12} />
-                        </button>
-                        <button 
-                          onClick={() => handleMove(elements.indexOf(chap), 'down')}
-                          disabled={chapIdx === chapArr.length - 1}
-                          className="btn btn-secondary"
-                          style={{ padding: '4px' }}
-                        >
-                          <ChevronDown size={12} />
-                        </button>
-                        <button 
-                          onClick={() => {
-                            setCreateType('scene');
-                            setCreateParentId(chap.id);
-                            setIsCreateOpen(true);
-                          }}
-                          className="btn btn-secondary"
-                          style={{ padding: '4px 8px', fontSize: '11px' }}
-                        >
-                          + Scene
-                        </button>
-                        <button 
-                          onClick={() => handleOpenEdit(chap)}
-                          className="btn btn-secondary"
-                          style={{ padding: '4px' }}
-                        >
-                          <Settings size={12} />
-                        </button>
-                      </div>
+                {/* Act Header */}
+                <div 
+                  style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center', 
+                    borderBottom: '1px solid var(--border-light)',
+                    paddingBottom: '12px',
+                    marginBottom: '16px'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ cursor: 'grab', color: 'var(--text-muted)' }} title="Drag to reorder act">
+                      <GripVertical size={16} />
                     </div>
+                    <span className="badge" style={{ backgroundColor: 'rgba(167, 139, 250, 0.15)', color: 'var(--secondary)' }}>
+                      Act {actIdx + 1}
+                    </span>
+                    <h2 style={{ fontSize: '20px', color: '#ffffff', fontFamily: 'var(--font-display)' }}>{act.title}</h2>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                      ({actWords.toLocaleString()} words)
+                    </span>
+                  </div>
 
-                    {/* Scenes under Chapter */}
-                    <div 
-                      style={{ 
-                        display: 'grid', 
-                        gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', 
-                        gap: '12px',
-                        marginTop: '8px' 
-                      }}
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button 
+                      onClick={() => handleMove(elements.indexOf(act), 'up')}
+                      disabled={actIdx === 0}
+                      className="btn btn-secondary"
+                      style={{ padding: '6px' }}
                     >
-                      {getScenesForChapter(chap.id).map((scene, sceneIdx, sceneArr) => {
-                        let sceneCodexIds: number[] = [];
-                        try { sceneCodexIds = JSON.parse(scene.metadata || '[]'); } catch (_) {}
-                        
-                        return (
-                          <div
-                            key={scene.id}
-                            onClick={() => handleOpenEdit(scene)}
-                            className="glass-panel"
-                            style={{
-                              padding: '16px',
-                              cursor: 'pointer',
-                              border: '1px solid rgba(255,255,255,0.06)',
-                              background: 'var(--bg-card)',
-                              transition: 'var(--transition-smooth)',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              justifyContent: 'space-between',
-                              height: '150px'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.borderColor = 'rgba(129, 140, 248, 0.4)'}
-                            onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'}
-                          >
-                            <div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                <span className={`badge badge-${scene.status}`}>{scene.status}</span>
-                                <div style={{ display: 'flex', gap: '2px' }} onClick={(e) => e.stopPropagation()}>
-                                  <button 
-                                    onClick={() => handleMove(elements.indexOf(scene), 'up')}
-                                    disabled={sceneIdx === 0}
-                                    style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-                                  >
-                                    <ChevronUp size={14} />
-                                  </button>
-                                  <button 
-                                    onClick={() => handleMove(elements.indexOf(scene), 'down')}
-                                    disabled={sceneIdx === sceneArr.length - 1}
-                                    style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-                                  >
-                                    <ChevronDown size={14} />
-                                  </button>
-                                </div>
-                              </div>
+                      <ChevronUp size={14} />
+                    </button>
+                    <button 
+                      onClick={() => handleMove(elements.indexOf(act), 'down')}
+                      disabled={actIdx === acts.length - 1}
+                      className="btn btn-secondary"
+                      style={{ padding: '6px' }}
+                    >
+                      <ChevronDown size={14} />
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setCreateType('chapter');
+                        setCreateParentId(act.id);
+                        setIsCreateOpen(true);
+                      }}
+                      className="btn btn-secondary"
+                      style={{ padding: '6px 12px', fontSize: '12px' }}
+                    >
+                      + Add Chapter
+                    </button>
+                    <button 
+                      onClick={() => handleOpenEdit(act)}
+                      className="btn btn-secondary"
+                      style={{ padding: '6px' }}
+                    >
+                      <Settings size={14} />
+                    </button>
+                  </div>
+                </div>
 
-                              <h4 style={{ color: '#ffffff', fontSize: '14px', marginBottom: '4px' }}>{scene.title}</h4>
-                              <p 
-                                style={{ 
-                                  color: 'var(--text-secondary)', 
-                                  fontSize: '12px', 
-                                  display: '-webkit-box',
-                                  WebkitLineClamp: 2,
-                                  WebkitBoxOrient: 'vertical',
-                                  overflow: 'hidden',
-                                  lineHeight: '1.4'
+                {act.summary && (
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px', fontStyle: 'italic' }}>
+                    {act.summary}
+                  </p>
+                )}
+
+                {/* Chapters under Act */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  {getChaptersForAct(act.id).map((chap, chapIdx, chapArr) => {
+                    const chapWords = getChapterWordCount(chap.id);
+                    const isChapDragOver = dragOverTargetId === chap.id;
+
+                    return (
+                      <div 
+                        key={chap.id} 
+                        draggable={true}
+                        onDragStart={(e) => handleDragStart(e, chap)}
+                        onDragOver={(e) => handleDragOver(e, chap)}
+                        onDrop={(e) => handleDrop(e, chap)}
+                        style={{ 
+                          padding: '16px 20px', 
+                          background: 'rgba(255,255,255,0.02)', 
+                          borderRadius: '8px', 
+                          border: isChapDragOver ? '2px dashed var(--secondary)' : '1px solid rgba(255,255,255,0.04)',
+                          transition: 'var(--transition-smooth)'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ cursor: 'grab', color: 'var(--text-muted)' }} title="Drag chapter">
+                              <GripVertical size={14} />
+                            </div>
+                            <Folder size={15} style={{ color: 'var(--secondary)' }} />
+                            <h3 style={{ fontSize: '16px', color: '#ffffff' }}>{chap.title}</h3>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                              ({chapWords.toLocaleString()} words)
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button 
+                              onClick={() => handleMove(elements.indexOf(chap), 'up')}
+                              disabled={chapIdx === 0}
+                              className="btn btn-secondary"
+                              style={{ padding: '4px' }}
+                            >
+                              <ChevronUp size={12} />
+                            </button>
+                            <button 
+                              onClick={() => handleMove(elements.indexOf(chap), 'down')}
+                              disabled={chapIdx === chapArr.length - 1}
+                              className="btn btn-secondary"
+                              style={{ padding: '4px' }}
+                            >
+                              <ChevronDown size={12} />
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setCreateType('scene');
+                                setCreateParentId(chap.id);
+                                setIsCreateOpen(true);
+                              }}
+                              className="btn btn-secondary"
+                              style={{ padding: '4px 8px', fontSize: '11px' }}
+                            >
+                              + Scene
+                            </button>
+                            <button 
+                              onClick={() => handleOpenEdit(chap)}
+                              className="btn btn-secondary"
+                              style={{ padding: '4px' }}
+                            >
+                              <Settings size={12} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Scenes under Chapter */}
+                        <div 
+                          style={{ 
+                            display: 'grid', 
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
+                            gap: '12px',
+                            marginTop: '8px' 
+                          }}
+                        >
+                          {getScenesForChapter(chap.id).map((scene) => {
+                            let sceneCodexIds: number[] = [];
+                            try { sceneCodexIds = JSON.parse(scene.metadata || '[]'); } catch (_) {}
+                            const words = sceneWordCounts[scene.id] || 0;
+                            const isSceneDragOver = dragOverTargetId === scene.id;
+                            
+                            return (
+                              <div
+                                key={scene.id}
+                                draggable={true}
+                                onDragStart={(e) => handleDragStart(e, scene)}
+                                onDragOver={(e) => handleDragOver(e, scene)}
+                                onDrop={(e) => handleDrop(e, scene)}
+                                onClick={() => handleOpenEdit(scene)}
+                                className="glass-panel hover-card"
+                                style={{
+                                  padding: '14px',
+                                  cursor: 'grab',
+                                  border: isSceneDragOver ? '2px dashed var(--primary)' : '1px solid rgba(255,255,255,0.06)',
+                                  background: 'var(--bg-card)',
+                                  borderRadius: '8px',
+                                  transition: 'var(--transition-smooth)',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  justifyContent: 'space-between',
+                                  minHeight: '140px'
                                 }}
                               >
-                                {scene.summary || 'No summary written.'}
-                              </p>
-                            </div>
+                                <div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+                                      <GripVertical size={13} style={{ color: 'var(--text-muted)' }} />
+                                      <span className={`status-dot ${scene.status}`} />
+                                      <span style={{ fontWeight: 600, fontSize: '13px', color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {scene.title}
+                                      </span>
+                                    </div>
+                                    <span className={`badge badge-${scene.status}`} style={{ fontSize: '9px', padding: '2px 6px' }}>
+                                      {scene.status}
+                                    </span>
+                                  </div>
 
-                            {/* Codex entities tags in scene */}
-                            <div style={{ display: 'flex', gap: '4px', overflow: 'hidden', marginTop: '6px' }}>
-                              {sceneCodexIds.slice(0, 3).map(id => {
-                                const entry = codex.find(c => c.id === id);
-                                if (!entry) return null;
-                                return (
-                                  <span 
-                                    key={id}
-                                    style={{ 
-                                      fontSize: '9px', 
-                                      backgroundColor: 'rgba(167, 139, 250, 0.12)', 
-                                      color: 'var(--secondary)',
-                                      padding: '2px 6px',
-                                      borderRadius: '4px',
-                                      border: '1px solid rgba(167, 139, 250, 0.2)',
-                                      whiteSpace: 'nowrap'
-                                    }}
-                                  >
-                                    {entry.name}
+                                  <p style={{ color: 'var(--text-secondary)', fontSize: '12px', lineHeight: '1.4', margin: '4px 0', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                                    {scene.summary || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No scene summary outline</span>}
+                                  </p>
+                                </div>
+
+                                <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                    {words} words
                                   </span>
-                                );
-                              })}
-                              {sceneCodexIds.length > 3 && (
-                                <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>+{sceneCodexIds.length - 3}</span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
 
-          {/* 2. Render Orphans (Unassociated Chapters or Scenes) */}
+                                  {sceneCodexIds.length > 0 && (
+                                    <span style={{ fontSize: '10px', color: 'var(--primary)', backgroundColor: 'rgba(129, 140, 248, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
+                                      {sceneCodexIds.length} Linked Lore
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* 2. Orphan Chapters & Scenes */}
           {(orphanChapters.length > 0 || orphanScenes.length > 0) && (
-            <div className="glass-panel" style={{ padding: '20px', border: '1px dashed var(--border-light)' }}>
-              <h2 style={{ fontSize: '18px', color: 'var(--text-secondary)', marginBottom: '12px' }}>Unassigned Elements</h2>
+            <div className="glass-panel" style={{ padding: '20px', border: '1px solid var(--border-light)', borderRadius: '10px' }}>
+              <h3 style={{ fontSize: '16px', color: 'var(--secondary)', marginBottom: '12px' }}>
+                Unassigned Scenes & Chapters
+              </h3>
+              
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '12px' }}>
                 {orphanScenes.map(scene => (
-                  <div 
-                    key={scene.id} 
+                  <div
+                    key={scene.id}
                     onClick={() => handleOpenEdit(scene)}
-                    className="glass-panel"
-                    style={{ padding: '16px', background: 'var(--bg-card)', cursor: 'pointer', height: '120px' }}
+                    className="glass-panel hover-card"
+                    style={{ padding: '12px', cursor: 'pointer', borderRadius: '8px' }}
                   >
-                    <span className={`badge badge-${scene.status}`}>{scene.status}</span>
-                    <h4 style={{ color: '#ffffff', fontSize: '14px', marginTop: '6px' }}>{scene.title}</h4>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {scene.summary || 'Click to edit summary...'}
-                    </p>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 600, color: '#ffffff', fontSize: '13px' }}>{scene.title}</span>
+                      <span className={`badge badge-${scene.status}`}>{scene.status}</span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -545,111 +699,120 @@ export const OutlinePlanner: React.FC<OutlinePlannerProps> = ({ projectId, apiBa
         </div>
       )}
 
-      {/* Edit Element Modal */}
-      {isModalOpen && selectedElement && (
+      {/* CREATE ELEMENT MODAL */}
+      {isCreateOpen && (
         <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '650px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '22px', color: '#ffffff' }}>
-                Edit {selectedElement.type.toUpperCase()}: {selectedElement.title}
-              </h2>
-              <button 
-                type="button" 
-                onClick={() => handleDeleteElement(selectedElement.id)}
-                className="btn btn-danger"
-                style={{ padding: '6px 12px', fontSize: '12px' }}
-              >
-                <Trash2 size={14} /> Delete Element
-              </button>
-            </div>
+          <div className="modal-content">
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '20px', color: '#ffffff', marginBottom: '14px' }}>
+              Create Outline Element ({createType.toUpperCase()})
+            </h2>
 
-            <form onSubmit={handleSaveEdit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <form onSubmit={handleCreateElement} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div>
                 <label className="label">Title</label>
-                <input 
-                  type="text" 
-                  value={editTitle} 
-                  onChange={(e) => setEditTitle(e.target.value)} 
-                  className="input" 
-                  required 
+                <input
+                  type="text"
+                  value={createTitle}
+                  onChange={(e) => setCreateTitle(e.target.value)}
+                  placeholder={`e.g. ${createType === 'act' ? 'Act I: The Call' : createType === 'chapter' ? 'Chapter 1: The Departure' : 'Scene 1: Tavern Confrontation'}`}
+                  className="input"
+                  required
+                  autoFocus
                 />
               </div>
 
-              {selectedElement.type === 'scene' && (
-                <div>
-                  <label className="label">Writing Status</label>
-                  <select 
-                    value={editStatus} 
-                    onChange={(e) => setEditStatus(e.target.value as any)} 
-                    className="input"
-                  >
-                    <option value="todo">To-Do (Not Started)</option>
-                    <option value="drafting">Drafting (In Progress)</option>
-                    <option value="review">Under Review</option>
-                    <option value="done">Completed</option>
-                  </select>
-                </div>
-              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setIsCreateOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  Create {createType}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT ELEMENT INSPECTOR MODAL */}
+      {isModalOpen && selectedElement && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '600px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '20px', color: '#ffffff' }}>
+                Edit {selectedElement.type.toUpperCase()}: {selectedElement.title}
+              </h2>
+              <span className={`badge badge-${editStatus}`}>{editStatus}</span>
+            </div>
+
+            <form onSubmit={handleSaveEdit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label className="label">Title</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="input"
+                  required
+                />
+              </div>
 
               <div>
-                <label className="label">Summary / Plot Outline</label>
-                <textarea 
-                  value={editSummary} 
-                  onChange={(e) => setEditSummary(e.target.value)} 
-                  className="input" 
+                <label className="label">Status</label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value as any)}
+                  className="input"
+                >
+                  <option value="todo">To Do (Planned)</option>
+                  <option value="drafting">Drafting (In Progress)</option>
+                  <option value="review">Review / Revision</option>
+                  <option value="done">Done (Completed)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="label">Plot Summary & Beats</label>
+                <textarea
+                  value={editSummary}
+                  onChange={(e) => setEditSummary(e.target.value)}
                   rows={4}
-                  placeholder={`Provide a summary for this ${selectedElement.type}. The AI references this summary directly when you write/chat inside the scene.`}
+                  className="input"
+                  placeholder="Outline key events, character motives, and turning points..."
                 />
               </div>
 
+              {/* Linked Codex Story Bible Elements */}
               {selectedElement.type === 'scene' && (
                 <div>
-                  <label className="label">Attached Codex Lore (Active Characters/Settings)</label>
-                  <div 
-                    style={{ 
-                      maxHeight: '150px', 
-                      overflowY: 'auto', 
-                      display: 'grid', 
-                      gridTemplateColumns: '1fr 1fr', 
-                      gap: '8px', 
-                      border: '1px solid var(--border-light)', 
-                      borderRadius: '8px',
-                      padding: '12px',
-                      background: 'rgba(0,0,0,0.2)'
-                    }}
-                  >
+                  <label className="label">Attached Codex Lore & Characters ({editAttachedCodex.length})</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '120px', overflowY: 'auto', padding: '8px', border: '1px solid var(--border-light)', borderRadius: '6px', background: 'rgba(0,0,0,0.2)' }}>
                     {codex.length === 0 ? (
-                      <span style={{ color: 'var(--text-muted)', fontSize: '12px', gridColumn: 'span 2' }}>
-                        No Codex entries created yet. Add entries in the Codex tab first.
-                      </span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No Codex entries found in project.</span>
                     ) : (
                       codex.map(item => {
                         const isAttached = editAttachedCodex.includes(item.id);
                         return (
-                          <label 
-                            key={item.id} 
-                            style={{ 
-                              display: 'flex', 
-                              alignItems: 'center', 
-                              gap: '8px', 
-                              cursor: 'pointer',
-                              fontSize: '13px',
-                              padding: '6px',
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => toggleCodexAttachment(item.id)}
+                            style={{
+                              padding: '4px 8px',
+                              fontSize: '11px',
                               borderRadius: '4px',
-                              background: isAttached ? 'rgba(129, 140, 248, 0.08)' : 'transparent',
-                              border: isAttached ? '1px solid rgba(129, 140, 248, 0.2)' : '1px solid transparent',
-                              transition: 'var(--transition-smooth)'
+                              border: isAttached ? '1px solid var(--primary)' : '1px solid var(--border-light)',
+                              background: isAttached ? 'rgba(129, 140, 248, 0.2)' : 'transparent',
+                              color: isAttached ? '#ffffff' : 'var(--text-secondary)',
+                              cursor: 'pointer'
                             }}
                           >
-                            <input 
-                              type="checkbox" 
-                              checked={isAttached} 
-                              onChange={() => toggleCodexAttachment(item.id)} 
-                            />
-                            <span style={{ color: isAttached ? '#ffffff' : 'var(--text-secondary)' }}>
-                              {item.name} <small style={{ color: 'var(--text-muted)' }}>({item.category})</small>
-                            </span>
-                          </label>
+                            {item.name} ({item.category})
+                          </button>
                         );
                       })
                     )}
@@ -657,113 +820,33 @@ export const OutlinePlanner: React.FC<OutlinePlannerProps> = ({ projectId, apiBa
                 </div>
               )}
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '10px' }}>
-                <button 
-                  type="button" 
-                  className="btn btn-secondary" 
-                  onClick={() => setIsModalOpen(false)}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ color: '#f87171' }}
+                  onClick={() => handleDeleteElement(selectedElement.id)}
                 >
-                  Cancel
+                  <Trash2 size={14} /> Delete
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
-      {/* Create Element Modal */}
-      {isCreateOpen && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '20px', marginBottom: '20px', color: '#ffffff' }}>
-              Create New {createType.toUpperCase()}
-            </h2>
-            <form onSubmit={handleCreateElement} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              
-              <div>
-                <label className="label">Structure Level</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {['act', 'chapter', 'scene'].map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setCreateType(t as any)}
-                      className="btn"
-                      style={{
-                        flex: 1,
-                        fontSize: '12px',
-                        textTransform: 'uppercase',
-                        background: createType === t ? 'rgba(129, 140, 248, 0.15)' : 'rgba(255, 255, 255, 0.03)',
-                        borderColor: createType === t ? 'var(--primary)' : 'var(--border-light)',
-                        color: createType === t ? '#ffffff' : 'var(--text-secondary)',
-                        borderWidth: '1px',
-                        borderStyle: 'solid'
-                      }}
-                    >
-                      {t}
-                    </button>
-                  ))}
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setIsModalOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary">
+                    Save Changes
+                  </button>
                 </div>
               </div>
-
-              <div>
-                <label className="label">Parent Section</label>
-                <select 
-                  className="input"
-                  value={createParentId || ''}
-                  onChange={(e) => setCreateParentId(e.target.value ? Number(e.target.value) : null)}
-                >
-                  <option value="">No Parent (Orphan / Root Act)</option>
-                  {createType === 'chapter' && 
-                    elements.filter(e => e.type === 'act').map(act => (
-                      <option key={act.id} value={act.id}>Inside Act: {act.title}</option>
-                    ))
-                  }
-                  {createType === 'scene' && 
-                    elements.filter(e => e.type === 'chapter').map(chap => {
-                      const parentAct = elements.find(a => a.id === chap.parent_id);
-                      return (
-                        <option key={chap.id} value={chap.id}>
-                          Inside Chapter: {chap.title} {parentAct ? `(Act: ${parentAct.title})` : ''}
-                        </option>
-                      );
-                    })
-                  }
-                </select>
-              </div>
-
-              <div>
-                <label className="label">Title</label>
-                <input 
-                  type="text" 
-                  value={createTitle} 
-                  onChange={(e) => setCreateTitle(e.target.value)} 
-                  className="input" 
-                  placeholder={`e.g. ${createType === 'act' ? 'Act I: The Awakening' : createType === 'chapter' ? 'Chapter 1' : 'Scene: Meeting in the Tavern'}`}
-                  required 
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '10px' }}>
-                <button 
-                  type="button" 
-                  className="btn btn-secondary" 
-                  onClick={() => setIsCreateOpen(false)}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  Create Structure
-                </button>
-              </div>
             </form>
           </div>
         </div>
       )}
-
     </div>
   );
 };

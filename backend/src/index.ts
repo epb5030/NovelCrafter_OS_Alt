@@ -397,6 +397,234 @@ app.delete('/api/projects/:projectId/outline/:id', async (req, res) => {
   }
 });
 
+// Batch Reorder & Reparent Outline Elements (for drag and drop)
+app.post('/api/projects/:projectId/outline/reorder', async (req, res) => {
+  const { items } = req.body; // Array<{ id: number, parent_id: number | null, position: number }>
+  if (!Array.isArray(items)) {
+    return res.status(400).json({ error: 'items array is required' });
+  }
+
+  try {
+    const db = await getDatabase();
+    await db.run('BEGIN TRANSACTION');
+
+    for (const item of items) {
+      await db.run(
+        'UPDATE outline_elements SET parent_id = ?, position = ? WHERE id = ? AND project_id = ?',
+        item.parent_id !== undefined ? item.parent_id : null,
+        item.position,
+        item.id,
+        req.params.projectId
+      );
+    }
+
+    await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', req.params.projectId);
+    await db.run('COMMIT');
+
+    res.json({ success: true, message: 'Outline reordered successfully.' });
+  } catch (error: any) {
+    try {
+      const db = await getDatabase();
+      await db.run('ROLLBACK');
+    } catch (_) {}
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get Manuscript & Outline Word Count Stats
+app.get('/api/projects/:projectId/outline-stats', async (req, res) => {
+  try {
+    const db = await getDatabase();
+    const sceneRows = await db.all(`
+      SELECT o.id as scene_id, o.parent_id, sc.content 
+      FROM outline_elements o
+      LEFT JOIN scene_contents sc ON o.id = sc.scene_id
+      WHERE o.project_id = ? AND o.type = 'scene'
+    `, req.params.projectId);
+
+    const sceneWordCounts: Record<number, number> = {};
+    let totalWords = 0;
+
+    for (const row of sceneRows) {
+      const text = row.content || '';
+      const words = text.trim() ? text.trim().split(/\s+/).filter(Boolean).length : 0;
+      sceneWordCounts[row.scene_id] = words;
+      totalWords += words;
+    }
+
+    res.json({ sceneWordCounts, totalWords });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// 3B. GLOBAL SEARCH & REPLACE API
+// ==========================================
+
+// Global project search across scenes, outline, and codex
+app.get('/api/projects/:projectId/search', async (req, res) => {
+  const query = (req.query.q as string || '').trim();
+  if (!query) {
+    return res.json({ scenes: [], outline: [], codex: [] });
+  }
+
+  try {
+    const db = await getDatabase();
+    const queryLower = query.toLowerCase();
+
+    // 1. Search Scene Contents
+    const sceneRows = await db.all(`
+      SELECT o.id, o.title, o.type, o.parent_id, sc.content
+      FROM outline_elements o
+      JOIN scene_contents sc ON o.id = sc.scene_id
+      WHERE o.project_id = ? AND o.type = 'scene'
+    `, req.params.projectId);
+
+    const sceneMatches: any[] = [];
+    for (const scene of sceneRows) {
+      const content = scene.content || '';
+      const contentLower = content.toLowerCase();
+      let matchIndex = contentLower.indexOf(queryLower);
+      let occurrences = 0;
+
+      const snippets: string[] = [];
+      while (matchIndex !== -1) {
+        occurrences++;
+        if (snippets.length < 3) {
+          const start = Math.max(0, matchIndex - 40);
+          const end = Math.min(content.length, matchIndex + query.length + 40);
+          let snippet = content.substring(start, end).replace(/\n+/g, ' ');
+          if (start > 0) snippet = '...' + snippet;
+          if (end < content.length) snippet = snippet + '...';
+          snippets.push(snippet);
+        }
+        matchIndex = contentLower.indexOf(queryLower, matchIndex + queryLower.length);
+      }
+
+      if (occurrences > 0) {
+        sceneMatches.push({
+          id: scene.id,
+          title: scene.title,
+          occurrences,
+          snippets
+        });
+      }
+    }
+
+    // 2. Search Outline Summaries / Titles
+    const outlineRows = await db.all(`
+      SELECT id, title, type, summary, status
+      FROM outline_elements
+      WHERE project_id = ? AND (LOWER(title) LIKE ? OR LOWER(summary) LIKE ?)
+    `, req.params.projectId, `%${queryLower}%`, `%${queryLower}%`);
+
+    // 3. Search Codex Entries
+    const codexRows = await db.all(`
+      SELECT id, name, aliases, category, description, notes
+      FROM codex_entries
+      WHERE project_id = ? AND (
+        LOWER(name) LIKE ? OR 
+        LOWER(aliases) LIKE ? OR 
+        LOWER(description) LIKE ? OR 
+        LOWER(notes) LIKE ?
+      )
+    `, req.params.projectId, `%${queryLower}%`, `%${queryLower}%`, `%${queryLower}%`, `%${queryLower}%`);
+
+    res.json({
+      scenes: sceneMatches,
+      outline: outlineRows,
+      codex: codexRows
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Global search & replace across scenes
+app.post('/api/projects/:projectId/replace', async (req, res) => {
+  const { searchTerm, replaceTerm, sceneIds } = req.body;
+  if (!searchTerm) {
+    return res.status(400).json({ error: 'searchTerm is required' });
+  }
+
+  try {
+    const db = await getDatabase();
+    let scenesToProcess = [];
+
+    if (Array.isArray(sceneIds) && sceneIds.length > 0) {
+      scenesToProcess = await db.all(`
+        SELECT o.id, o.title, sc.content 
+        FROM outline_elements o
+        JOIN scene_contents sc ON o.id = sc.scene_id
+        WHERE o.project_id = ? AND o.id IN (${sceneIds.map(() => '?').join(',')})
+      `, req.params.projectId, ...sceneIds);
+    } else {
+      scenesToProcess = await db.all(`
+        SELECT o.id, o.title, sc.content 
+        FROM outline_elements o
+        JOIN scene_contents sc ON o.id = sc.scene_id
+        WHERE o.project_id = ? AND o.type = 'scene'
+      `, req.params.projectId);
+    }
+
+    let updatedScenesCount = 0;
+    let totalOccurrencesReplaced = 0;
+
+    await db.run('BEGIN TRANSACTION');
+
+    for (const scene of scenesToProcess) {
+      const content = scene.content || '';
+      const regex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+      const matches = content.match(regex);
+
+      if (matches && matches.length > 0) {
+        const occurrences = matches.length;
+        const newContent = content.replace(regex, replaceTerm || '');
+
+        // 1. Take safety snapshot before replacement
+        const words = content.trim() ? content.trim().split(/\s+/).filter(Boolean).length : 0;
+        await db.run(
+          'INSERT INTO scene_snapshots (scene_id, content, word_count, label, source) VALUES (?, ?, ?, ?, ?)',
+          scene.id,
+          content,
+          words,
+          `Pre-Replace Safety Backup: "${searchTerm}" → "${replaceTerm || ''}"`,
+          'safety_backup'
+        );
+
+        // 2. Update scene content
+        await db.run(
+          'UPDATE scene_contents SET content = ?, last_saved_at = CURRENT_TIMESTAMP WHERE scene_id = ?',
+          newContent,
+          scene.id
+        );
+
+        updatedScenesCount++;
+        totalOccurrencesReplaced += occurrences;
+      }
+    }
+
+    if (updatedScenesCount > 0) {
+      await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', req.params.projectId);
+    }
+
+    await db.run('COMMIT');
+
+    res.json({
+      success: true,
+      updatedScenesCount,
+      totalOccurrencesReplaced
+    });
+  } catch (error: any) {
+    try {
+      const db = await getDatabase();
+      await db.run('ROLLBACK');
+    } catch (_) {}
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==========================================
 // 4. EDITOR MANUSCRIPT API
 // ==========================================

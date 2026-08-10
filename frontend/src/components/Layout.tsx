@@ -5,7 +5,8 @@ import {
   Database, 
   Settings as SettingsIcon, 
   ChevronLeft, 
-  Sparkles
+  Sparkles,
+  Search
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -15,6 +16,7 @@ interface LayoutProps {
   projectName: string;
   onBackToDashboard: () => void;
   activeProvider: string;
+  onOpenSearch?: () => void;
 }
 
 export const Layout: React.FC<LayoutProps> = ({
@@ -23,7 +25,8 @@ export const Layout: React.FC<LayoutProps> = ({
   setActiveTab,
   projectName,
   onBackToDashboard,
-  activeProvider
+  activeProvider,
+  onOpenSearch
 }) => {
   const menuItems = [
     { id: 'write', label: 'Write', icon: BookOpen },
@@ -99,8 +102,34 @@ export const Layout: React.FC<LayoutProps> = ({
           </div>
         </div>
 
+        {/* Global Search Shortcut Button */}
+        {onOpenSearch && (
+          <div style={{ padding: '12px 16px 4px 16px' }}>
+            <button
+              onClick={onOpenSearch}
+              className="btn btn-secondary"
+              style={{
+                width: '100%',
+                justifyContent: 'space-between',
+                padding: '8px 12px',
+                fontSize: '12px',
+                color: 'var(--text-secondary)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                background: 'rgba(0,0,0,0.2)'
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Search size={14} style={{ color: 'var(--primary)' }} /> Search Project...
+              </span>
+              <kbd style={{ fontSize: '10px', background: 'rgba(255,255,255,0.1)', padding: '2px 5px', borderRadius: '4px', color: 'var(--text-muted)' }}>
+                Ctrl+K
+              </kbd>
+            </button>
+          </div>
+        )}
+
         {/* Menu Items */}
-        <nav style={{ padding: '16px 8px', flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <nav style={{ padding: '12px 8px', flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
           {menuItems.map(item => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;

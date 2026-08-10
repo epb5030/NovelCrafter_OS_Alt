@@ -19,7 +19,12 @@ import {
   Sliders,
   X,
   Eye,
-  Check
+  Check,
+  AtSign,
+  User,
+  MapPin,
+  Package,
+  FileText
 } from 'lucide-react';
 import type { CodexEntry } from './CodexManager';
 import type { OutlineElement } from './OutlinePlanner';
@@ -86,6 +91,12 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
   const [previewSnapshot, setPreviewSnapshot] = useState<SceneSnapshot | null>(null);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
 
+  // Inline @ Mention Autocomplete States
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState<number>(-1);
+  const [selectedMentionIdx, setSelectedMentionIdx] = useState<number>(0);
+  const [activeLorePreview, setActiveLorePreview] = useState<CodexEntry | null>(null);
+
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const autosaveTimeoutRef = useRef<any>(null);
 
@@ -143,6 +154,7 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
     setLastSaved('');
     setSelection('');
     setPreviewSnapshot(null);
+    setMentionQuery(null);
     
     try {
       const res = await fetch(`${apiBase}/scenes/${sceneId}/content`);
@@ -159,10 +171,29 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
     }
   };
 
-  // Autosave content
+  // Autosave content & Check @ Mention trigger
   const handleEditorChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
+    const cursorPos = e.target.selectionStart;
     setEditorText(value);
+
+    // Check if user is typing an @ mention
+    const textBeforeCursor = value.substring(0, cursorPos);
+    const lastAtIdx = textBeforeCursor.lastIndexOf('@');
+
+    if (lastAtIdx !== -1) {
+      const textAfterAt = textBeforeCursor.substring(lastAtIdx + 1);
+      // Valid mention if no whitespace or newline between @ and cursor, and length <= 25
+      if (!/\s/.test(textAfterAt) && textAfterAt.length <= 25) {
+        setMentionQuery(textAfterAt.toLowerCase());
+        setMentionIndex(lastAtIdx);
+        setSelectedMentionIdx(0);
+      } else {
+        setMentionQuery(null);
+      }
+    } else {
+      setMentionQuery(null);
+    }
 
     if (autosaveTimeoutRef.current) {
       clearTimeout(autosaveTimeoutRef.current);
@@ -212,6 +243,66 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
         setSelection(selected);
       } else {
         setSelection('');
+      }
+    }
+  };
+
+  // Mention Filter List
+  const filteredMentions = codex.filter(item => {
+    if (mentionQuery === null) return false;
+    if (mentionQuery === '') return true;
+    const nameMatch = item.name.toLowerCase().includes(mentionQuery);
+    const aliasMatch = item.aliases ? item.aliases.toLowerCase().includes(mentionQuery) : false;
+    const catMatch = item.category.toLowerCase().includes(mentionQuery);
+    return nameMatch || aliasMatch || catMatch;
+  }).slice(0, 6);
+
+  // Insert Selected Mention
+  const handleInsertMention = (entry: CodexEntry) => {
+    if (mentionIndex === -1 || !editorRef.current) return;
+    const cursorPos = editorRef.current.selectionStart;
+    const beforeAt = editorText.substring(0, mentionIndex);
+    const afterCursor = editorText.substring(cursorPos);
+    const newText = `${beforeAt}${entry.name} ${afterCursor}`;
+
+    setEditorText(newText);
+    setMentionQuery(null);
+    setMentionIndex(-1);
+
+    if (activeSceneId) {
+      saveSceneContent(activeSceneId, newText);
+    }
+
+    setTimeout(() => {
+      if (editorRef.current) {
+        const newCursor = beforeAt.length + entry.name.length + 1;
+        editorRef.current.focus();
+        editorRef.current.setSelectionRange(newCursor, newCursor);
+      }
+    }, 10);
+  };
+
+  // Handle Keyboard Navigation in Editor for Mentions
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionQuery !== null && filteredMentions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedMentionIdx((prev) => (prev + 1) % filteredMentions.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedMentionIdx((prev) => (prev - 1 + filteredMentions.length) % filteredMentions.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        handleInsertMention(filteredMentions[selectedMentionIdx]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        setMentionQuery(null);
+        return;
       }
     }
   };
@@ -612,8 +703,17 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
     }
   };
 
+  const getCodexIcon = (category: string) => {
+    switch (category.toLowerCase()) {
+      case 'character': return <User size={13} style={{ color: 'var(--primary)' }} />;
+      case 'location': return <MapPin size={13} style={{ color: 'var(--secondary)' }} />;
+      case 'item': return <Package size={13} style={{ color: '#fbbf24' }} />;
+      default: return <FileText size={13} style={{ color: 'var(--text-secondary)' }} />;
+    }
+  };
+
   return (
-    <div style={{ display: 'flex', flex: 1, height: '100%', overflow: 'hidden' }} className="animate-scale">
+    <div style={{ display: 'flex', flex: 1, height: '100%', overflow: 'hidden', position: 'relative' }} className="animate-scale">
       
       {/* LEFT PANEL: Manuscript Tree Navigation */}
       <aside 
@@ -691,7 +791,7 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
       </aside>
 
       {/* CENTER PANEL: Writing Canvas */}
-      <section style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-app)' }}>
+      <section style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-app)', position: 'relative' }}>
         {activeScene ? (
           <>
             {/* Editor Toolbar */}
@@ -776,14 +876,15 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
               </div>
             </div>
 
-            {/* Main Rich text editor area */}
-            <div style={{ flex: 1, padding: '40px 60px', overflowY: 'auto', display: 'flex', justifyContent: 'center' }}>
+            {/* Main Rich text editor area with @ Mention Autocomplete Overlay */}
+            <div style={{ flex: 1, padding: '40px 60px', overflowY: 'auto', display: 'flex', justifyContent: 'center', position: 'relative' }}>
               <textarea
                 ref={editorRef}
                 value={editorText}
                 onChange={handleEditorChange}
                 onSelect={handleTextSelect}
-                placeholder="Once upon a time, in a land forgotten by cartographers..."
+                onKeyDown={handleKeyDown}
+                placeholder="Once upon a time, in a land forgotten by cartographers... (Type @ to mention Codex characters & lore)"
                 style={{
                   width: '100%',
                   maxWidth: '750px',
@@ -799,6 +900,85 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
                   paddingBottom: '200px'
                 }}
               />
+
+              {/* Floating @ Mention Autocomplete Dropdown */}
+              {mentionQuery !== null && filteredMentions.length > 0 && (
+                <div
+                  className="glass-panel"
+                  style={{
+                    position: 'absolute',
+                    top: '90px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    width: '360px',
+                    maxHeight: '280px',
+                    overflowY: 'auto',
+                    zIndex: 50,
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+                    border: '1px solid var(--primary)',
+                    borderRadius: '8px',
+                    padding: '6px',
+                    background: 'rgba(18, 18, 28, 0.98)',
+                    animation: 'fadeIn 0.15s ease-out'
+                  }}
+                >
+                  <div style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', borderBottom: '1px solid var(--border-light)', marginBottom: '4px' }}>
+                    <AtSign size={11} style={{ color: 'var(--primary)' }} />
+                    <span>Mention Codex Entity (Enter to insert, Esc to close)</span>
+                  </div>
+
+                  {filteredMentions.map((item, idx) => {
+                    const isSelected = idx === selectedMentionIdx;
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => handleInsertMention(item)}
+                        onMouseEnter={() => setSelectedMentionIdx(idx)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '8px 10px',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          backgroundColor: isSelected ? 'rgba(129, 140, 248, 0.18)' : 'transparent',
+                          border: isSelected ? '1px solid rgba(129, 140, 248, 0.3)' : '1px solid transparent',
+                          transition: 'var(--transition-smooth)'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                          {getCodexIcon(item.category)}
+                          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                            <span style={{ fontWeight: 600, fontSize: '13px', color: '#ffffff', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                              {item.name}
+                            </span>
+                            {item.aliases && (
+                              <span style={{ fontSize: '10px', color: 'var(--text-muted)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                                Aliases: {item.aliases}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <span 
+                          style={{ 
+                            fontSize: '9px', 
+                            textTransform: 'uppercase', 
+                            padding: '2px 5px', 
+                            borderRadius: '3px', 
+                            backgroundColor: 'rgba(255,255,255,0.06)',
+                            color: 'var(--text-secondary)',
+                            fontWeight: 600,
+                            flexShrink: 0
+                          }}
+                        >
+                          {item.category}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Word Count & Status Footer */}
@@ -961,25 +1141,34 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
                   
                   {detectedCodex.length === 0 ? (
                     <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '6px 0' }}>
-                      No codex keywords or character aliases found in this scene's text.
+                      No codex keywords or character aliases found in this scene's text. Type <span style={{ color: 'var(--primary)' }}>@</span> to mention entities.
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {detectedCodex.map(item => (
                         <div 
                           key={item.id}
+                          onClick={() => setActiveLorePreview(item)}
                           style={{
                             padding: '10px',
                             background: 'rgba(167, 139, 250, 0.06)',
                             border: '1px solid rgba(167, 139, 250, 0.15)',
                             borderRadius: '6px',
-                            fontSize: '12px'
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                            transition: 'var(--transition-smooth)'
                           }}
+                          className="hover-card"
                         >
-                          <div style={{ fontWeight: 600, color: '#ffffff', marginBottom: '2px' }}>
-                            {item.name} <span style={{ fontSize: '10px', color: 'var(--secondary)', textTransform: 'uppercase' }}>({item.category})</span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                            <span style={{ fontWeight: 600, color: '#ffffff' }}>{item.name}</span>
+                            <span style={{ fontSize: '9px', color: 'var(--secondary)', textTransform: 'uppercase', padding: '2px 4px', borderRadius: '3px', background: 'rgba(255,255,255,0.05)' }}>
+                              {item.category}
+                            </span>
                           </div>
-                          <div style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>{item.description}</div>
+                          <div style={{ color: 'var(--text-secondary)', fontSize: '11px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {item.description}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1245,6 +1434,59 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
         </aside>
       )}
 
+      {/* QUICK LORE PREVIEW MODAL */}
+      {activeLorePreview && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '500px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {getCodexIcon(activeLorePreview.category)}
+                <h3 style={{ fontSize: '18px', color: '#ffffff' }}>{activeLorePreview.name}</h3>
+              </div>
+              <span className="badge badge-primary">{activeLorePreview.category}</span>
+            </div>
+
+            {activeLorePreview.aliases && (
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                <strong>Aliases:</strong> {activeLorePreview.aliases}
+              </div>
+            )}
+
+            <div style={{ margin: '12px 0', fontSize: '13px', lineHeight: '1.6', color: 'rgba(255,255,255,0.9)', background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+              {activeLorePreview.description || 'No description provided.'}
+            </div>
+
+            {activeLorePreview.notes && (
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px', background: 'rgba(129, 140, 248, 0.05)', padding: '8px 12px', borderRadius: '6px' }}>
+                <strong>Author Notes:</strong> {activeLorePreview.notes}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  insertChatOutput(activeLorePreview.name);
+                  setActiveLorePreview(null);
+                }}
+              >
+                Insert Name
+              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setActiveLorePreview(null)}
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* CREATE SNAPSHOT MODAL */}
       {isCreateSnapshotModalOpen && (
         <div className="modal-overlay">
@@ -1478,4 +1720,3 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
     </div>
   );
 };
-
