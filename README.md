@@ -17,6 +17,30 @@
 
 ---
 
+## 🔒 Security, Privacy & Runtime Defaults
+
+> **⚠️ PRIVACY & DATABASE WARNING**:
+> The SQLite database file (**`backend/data/novels.db`**) stores your project manuscript prose, codex lore entries, plot matrix items, and configured studio settings.
+> **NEVER commit `backend/data/` or `*.db` to git repositories or push them to public GitHub repos.**
+
+### Key Management Best Practices
+
+1. **Environment Variable Priority (Recommended for Production)**:
+   Define your API keys in your environment or `.env` file. Environment variables **always override** database settings:
+   ```bash
+   OPENAI_API_KEY=sk-...
+   ANTHROPIC_API_KEY=sk-ant-...
+   GEMINI_API_KEY=AIzaSy...
+   OPENROUTER_API_KEY=sk-or-...
+   OLLAMA_CLOUD_API_KEY=...
+   ```
+2. **Server-Side AES-256-GCM Encryption**:
+   If you configure API keys via the Studio Settings UI, OpenCrafter automatically encrypts sensitive keys using **AES-256-GCM** before writing to SQLite.
+3. **1-Click Stored Key Wiping**:
+   You can strip all API keys from the SQLite database at any time by clicking **"🧹 Clear All Stored Keys"** in the Studio Settings UI or sending a POST request to `/api/settings/clear-keys`.
+
+---
+
 ## 🌟 Overview
 
 **OpenCrafter** is an open-source, privacy-first alternative to commercial novel-writing software. Designed for fiction authors, worldbuilders, and story architects, OpenCrafter provides real-time AI co-writing, interactive plot matrix tracking, multi-track story timelines, cartographic world mapping, character voice tuning, and 1-click publishing compilation into ready-to-publish **EPUB 3** e-books and industry-standard **Microsoft Word (.docx)** manuscripts.
@@ -67,7 +91,7 @@
 ## 🛠️ Technology Stack
 
 - **Frontend**: React 18, TypeScript, Vite, Vanilla CSS Design System, Lucide Icons.
-- **Backend**: Node.js, Express, SQLite (`better-sqlite3` / `sqlite`), Archiver (Binary EPUB/DOCX zip packaging).
+- **Backend**: Node.js, Express, SQLite (`better-sqlite3` / `sqlite`), Archiver (Binary EPUB/DOCX zip packaging), Node Crypto (AES-256-GCM).
 - **AI Streaming**: Server-Sent Events (SSE) streaming API handlers.
 
 ---

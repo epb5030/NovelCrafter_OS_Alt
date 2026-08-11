@@ -2,11 +2,43 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AIService = void 0;
 const database_1 = require("../config/database");
+const crypto_service_1 = require("./crypto.service");
+const SENSITIVE_KEYS = new Set([
+    'openai_api_key',
+    'anthropic_api_key',
+    'openrouter_api_key',
+    'gemini_api_key',
+    'ollama_cloud_api_key',
+    'google_client_secret',
+    'github_client_secret'
+]);
 class AIService {
+    /**
+     * Retrieves a setting with Environment Variable Priority > SQLite DB (decrypted)
+     */
     static async getSetting(key) {
+        // 1. Environment Variable Priority
+        const envKey = key.toUpperCase();
+        if (process.env[envKey] && process.env[envKey]?.trim() !== '') {
+            return process.env[envKey].trim();
+        }
+        // 2. SQLite Database Fallback
         const db = await (0, database_1.getDatabase)();
         const row = await db.get('SELECT value FROM settings WHERE key = ?', key);
-        return row ? row.value : '';
+        if (!row || !row.value)
+            return '';
+        return crypto_service_1.CryptoService.decrypt(row.value);
+    }
+    /**
+     * Saves a setting to SQLite DB with AES-256-GCM encryption for sensitive keys
+     */
+    static async saveSetting(key, value) {
+        const db = await (0, database_1.getDatabase)();
+        let valToSave = value || '';
+        if (SENSITIVE_KEYS.has(key) && valToSave) {
+            valToSave = crypto_service_1.CryptoService.encrypt(valToSave);
+        }
+        await db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', key, valToSave);
     }
     static async prepareContext(options) {
         const db = await (0, database_1.getDatabase)();

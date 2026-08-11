@@ -11,7 +11,9 @@ import {
   Feather, 
   Flame, 
   Monitor,
-  Cloud 
+  Cloud,
+  Trash2,
+  Lock
 } from 'lucide-react';
 import type { ThemeType } from '../App';
 
@@ -29,6 +31,7 @@ export const Settings: React.FC<SettingsProps> = ({
   onThemeChange
 }) => {
   const [settings, setSettings] = useState<Record<string, string>>({});
+  const [envOverrides, setEnvOverrides] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [savedMessage, setSavedMessage] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -43,12 +46,26 @@ export const Settings: React.FC<SettingsProps> = ({
       const res = await fetch(`${apiBase}/settings`);
       if (res.ok) {
         const data = await res.json();
-        setSettings(data);
+        setSettings(data.settings || data);
+        setEnvOverrides(data.envOverrides || {});
       }
     } catch (err) {
       console.error('Failed to load settings:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleClearKeys = async () => {
+    if (!confirm('Are you sure you want to strip all API keys from the local database? (Keys defined in .env will remain active).')) return;
+    try {
+      const res = await fetch(`${apiBase}/settings/clear-keys`, { method: 'POST' });
+      if (res.ok) {
+        alert('All stored API keys have been stripped from the database!');
+        fetchSettings();
+      }
+    } catch (err) {
+      console.error('Failed to clear keys:', err);
     }
   };
 
@@ -243,6 +260,26 @@ export const Settings: React.FC<SettingsProps> = ({
               </button>
             ))}
           </div>
+
+          {/* Security & Key Encryption Notice */}
+          <div style={{ marginTop: '14px', padding: '12px 14px', borderRadius: '6px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-light)', fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Lock size={14} style={{ color: 'var(--primary)' }} />
+              <span>
+                <strong>Key Security & Privacy:</strong> Environment variables (e.g. <code>OPENAI_API_KEY</code>) take priority. API keys saved below are encrypted server-side with AES-256-GCM.
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleClearKeys}
+              className="btn btn-secondary"
+              style={{ fontSize: '11px', padding: '4px 10px', gap: '4px', color: '#f87171' }}
+              title="Strip all API keys from SQLite database"
+            >
+              <Trash2 size={12} /> Clear All Stored Keys
+            </button>
+          </div>
         </div>
 
         {/* 1A. Ollama Cloud / Remote Host Settings */}
@@ -323,7 +360,14 @@ export const Settings: React.FC<SettingsProps> = ({
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label className="label">Google AI Studio API Key</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <label className="label" style={{ margin: 0 }}>Google AI Studio API Key</label>
+                  {envOverrides['gemini_api_key'] && (
+                    <span style={{ fontSize: '10px', background: 'rgba(52, 211, 153, 0.15)', color: '#34d399', border: '1px solid rgba(52, 211, 153, 0.3)', padding: '2px 6px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <Lock size={10} /> Loaded from .env
+                    </span>
+                  )}
+                </div>
                 <input 
                   type="password" 
                   value={settings.gemini_api_key || ''} 
@@ -412,7 +456,14 @@ export const Settings: React.FC<SettingsProps> = ({
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label className="label">OpenAI API Key</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <label className="label" style={{ margin: 0 }}>OpenAI API Key</label>
+                  {envOverrides['openai_api_key'] && (
+                    <span style={{ fontSize: '10px', background: 'rgba(52, 211, 153, 0.15)', color: '#34d399', border: '1px solid rgba(52, 211, 153, 0.3)', padding: '2px 6px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <Lock size={10} /> Loaded from .env
+                    </span>
+                  )}
+                </div>
                 <input 
                   type="password" 
                   value={settings.openai_api_key || ''} 
@@ -448,7 +499,14 @@ export const Settings: React.FC<SettingsProps> = ({
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label className="label">Anthropic API Key</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <label className="label" style={{ margin: 0 }}>Anthropic API Key</label>
+                  {envOverrides['anthropic_api_key'] && (
+                    <span style={{ fontSize: '10px', background: 'rgba(52, 211, 153, 0.15)', color: '#34d399', border: '1px solid rgba(52, 211, 153, 0.3)', padding: '2px 6px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <Lock size={10} /> Loaded from .env
+                    </span>
+                  )}
+                </div>
                 <input 
                   type="password" 
                   value={settings.anthropic_api_key || ''} 
@@ -484,7 +542,14 @@ export const Settings: React.FC<SettingsProps> = ({
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
-                <label className="label">OpenRouter API Key</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <label className="label" style={{ margin: 0 }}>OpenRouter API Key</label>
+                  {envOverrides['openrouter_api_key'] && (
+                    <span style={{ fontSize: '10px', background: 'rgba(52, 211, 153, 0.15)', color: '#34d399', border: '1px solid rgba(52, 211, 153, 0.3)', padding: '2px 6px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <Lock size={10} /> Loaded from .env
+                    </span>
+                  )}
+                </div>
                 <input 
                   type="password" 
                   value={settings.openrouter_api_key || ''} 

@@ -1271,42 +1271,61 @@ app.post('/api/scenes/:sceneId/snapshots/:snapshotId/restore', async (req, res) 
 // 5. SETTINGS API
 // ==========================================
 
-// Get settings
+// Get settings (returns decrypted values & env override flags)
 app.get('/api/settings', async (req, res) => {
   try {
     const db = await getDatabase();
     const rows = await db.all('SELECT * FROM settings');
     const settingsObj: Record<string, string> = {};
-    rows.forEach(row => {
-      settingsObj[row.key] = row.value;
+    const envOverrides: Record<string, boolean> = {};
+
+    for (const row of rows) {
+      const val = await AIService.getSetting(row.key);
+      settingsObj[row.key] = val;
+      const envKey = row.key.toUpperCase();
+      envOverrides[row.key] = !!(process.env[envKey] && process.env[envKey]?.trim() !== '');
+    }
+
+    res.json({
+      settings: settingsObj,
+      envOverrides
     });
-    res.json(settingsObj);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Save settings bulk
+// Save settings bulk (encrypts sensitive keys server-side)
 app.post('/api/settings', async (req, res) => {
   const settingsData = req.body; // Expects object e.g. { openai_api_key: "...", ... }
   try {
-    const db = await getDatabase();
-    await db.run('BEGIN TRANSACTION');
-    
     for (const [key, value] of Object.entries(settingsData)) {
-      await db.run(
-        'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-        key, String(value)
-      );
+      await AIService.saveSetting(key, String(value));
     }
-    
-    await db.run('COMMIT');
     res.json({ success: true, message: 'Settings saved successfully.' });
   } catch (error: any) {
-    try {
-      const db = await getDatabase();
-      await db.run('ROLLBACK');
-    } catch (_) {}
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 1-Click Clear Stored Keys Endpoint
+app.post('/api/settings/clear-keys', async (req, res) => {
+  const sensitiveKeys = [
+    'openai_api_key',
+    'anthropic_api_key',
+    'openrouter_api_key',
+    'gemini_api_key',
+    'ollama_cloud_api_key',
+    'google_client_secret',
+    'github_client_secret'
+  ];
+  try {
+    const db = await getDatabase();
+    for (const key of sensitiveKeys) {
+      await db.run('UPDATE settings SET value = "" WHERE key = ?', key);
+    }
+    res.json({ success: true, message: 'All stored API keys stripped from database.' });
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });

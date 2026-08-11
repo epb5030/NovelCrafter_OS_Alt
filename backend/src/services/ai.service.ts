@@ -1,4 +1,5 @@
 import { getDatabase } from '../config/database';
+import { CryptoService } from './crypto.service';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -30,11 +31,47 @@ interface PreparedLLMContext {
   systemPrompt: string;
 }
 
+const SENSITIVE_KEYS = new Set([
+  'openai_api_key',
+  'anthropic_api_key',
+  'openrouter_api_key',
+  'gemini_api_key',
+  'ollama_cloud_api_key',
+  'google_client_secret',
+  'github_client_secret'
+]);
+
 export class AIService {
+  /**
+   * Retrieves a setting with Environment Variable Priority > SQLite DB (decrypted)
+   */
   public static async getSetting(key: string): Promise<string> {
+    // 1. Environment Variable Priority
+    const envKey = key.toUpperCase();
+    if (process.env[envKey] && process.env[envKey]?.trim() !== '') {
+      return process.env[envKey]!.trim();
+    }
+
+    // 2. SQLite Database Fallback
     const db = await getDatabase();
     const row = await db.get('SELECT value FROM settings WHERE key = ?', key);
-    return row ? row.value : '';
+    if (!row || !row.value) return '';
+
+    return CryptoService.decrypt(row.value);
+  }
+
+  /**
+   * Saves a setting to SQLite DB with AES-256-GCM encryption for sensitive keys
+   */
+  public static async saveSetting(key: string, value: string): Promise<void> {
+    const db = await getDatabase();
+    let valToSave = value || '';
+
+    if (SENSITIVE_KEYS.has(key) && valToSave) {
+      valToSave = CryptoService.encrypt(valToSave);
+    }
+
+    await db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', key, valToSave);
   }
 
   private static async prepareContext(options: GenerationOptions): Promise<PreparedLLMContext> {
