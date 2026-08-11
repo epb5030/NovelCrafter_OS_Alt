@@ -37,7 +37,7 @@ jobs:
             frontend/dist
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           files: opencrafter-studio-${{ github.ref_name }}.zip
           draft: false
