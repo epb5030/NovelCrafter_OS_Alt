@@ -100,8 +100,8 @@ export const ProseDoctorModal: React.FC<ProseDoctorModalProps> = ({
     const readingTimeMinutes = Math.max(1, Math.ceil(wordCount / 225)); // ~225 wpm reading speed
 
     // Dialogue Analysis (Quotes)
-    const quoteMatches = trimmed.match(/"([^"]*)"|“([^”]*)”|'([^']*)'|‘([^’]*)’/g) || [];
-    const dialogueChars = quoteMatches.reduce((acc, q) => acc + q.length, 0);
+    const quoteMatches: string[] = trimmed.match(/"([^"]*)"|“([^”]*)”|'([^']*)'|‘([^’]*)’/g) || [];
+    const dialogueChars = quoteMatches.reduce((acc: number, q: string) => acc + q.length, 0);
     const dialogueRatio = Math.min(100, Math.round((dialogueChars / Math.max(1, charCount)) * 100));
     const expositionRatio = 100 - dialogueRatio;
 
