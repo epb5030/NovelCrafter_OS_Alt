@@ -26,10 +26,14 @@ import {
   Package,
   FileText,
   Timer,
-  Flame
+  Flame,
+  Stethoscope,
+  ListOrdered
 } from 'lucide-react';
 import type { CodexEntry } from './CodexManager';
 import type { OutlineElement } from './OutlinePlanner';
+import { ProseDoctorModal } from './ProseDoctorModal';
+import { BeatExpanderModal } from './BeatExpanderModal';
 
 interface WriteEditorProps {
   projectId: number;
@@ -107,6 +111,24 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
   const [sprintStartWords, setSprintStartWords] = useState(0);
   const [sprintWordsWritten, setSprintWordsWritten] = useState(0);
   const [sprintSummary, setSprintSummary] = useState<{ words: number; minutes: number; wpm: number } | null>(null);
+
+  // Phase 4 States: Prose Doctor & Beat Expander
+  const [isProseDoctorOpen, setIsProseDoctorOpen] = useState(false);
+  const [isBeatExpanderOpen, setIsBeatExpanderOpen] = useState(false);
+
+  const handleApplyBeatProse = async (generatedProse: string, mode: 'append' | 'replace') => {
+    if (!activeSceneId) return;
+    await createPreAISnapshot(activeSceneId, editorText, 'Beat Expander');
+    let newText = '';
+    if (mode === 'append') {
+      const space = editorText.endsWith('\n\n') ? '' : editorText.endsWith('\n') ? '\n' : '\n\n';
+      newText = editorText + (editorText ? space : '') + generatedProse;
+    } else {
+      newText = generatedProse;
+    }
+    setEditorText(newText);
+    await saveSceneContent(activeSceneId, newText);
+  };
 
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const autosaveTimeoutRef = useRef<any>(null);
@@ -935,6 +957,24 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
                       <Wand2 size={13} style={{ color: 'var(--primary)' }} /> Edit Selection
                     </button>
                   )}
+
+                  <button 
+                    onClick={() => setIsBeatExpanderOpen(true)}
+                    className="btn btn-secondary"
+                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                    title="Expand structured outline beats into continuous scene prose"
+                  >
+                    <ListOrdered size={13} style={{ color: 'var(--primary)' }} /> Scene Beats
+                  </button>
+
+                  <button 
+                    onClick={() => setIsProseDoctorOpen(true)}
+                    className="btn btn-secondary"
+                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                    title="Open AI Prose Doctor & Stylistic Diagnostics"
+                  >
+                    <Stethoscope size={13} style={{ color: '#34d399' }} /> Prose Doctor
+                  </button>
 
                   <button
                     onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
@@ -1911,6 +1951,31 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
             )}
           </div>
         </div>
+      )}
+
+      {/* PROSE DOCTOR MODAL */}
+      {activeScene && (
+        <ProseDoctorModal
+          sceneTitle={activeScene.title}
+          sceneText={editorText}
+          sceneId={activeScene.id}
+          apiBase={apiBase}
+          isOpen={isProseDoctorOpen}
+          onClose={() => setIsProseDoctorOpen(false)}
+        />
+      )}
+
+      {/* BEAT EXPANDER MODAL */}
+      {activeScene && (
+        <BeatExpanderModal
+          sceneId={activeScene.id}
+          sceneTitle={activeScene.title}
+          sceneSummary={activeScene.summary}
+          apiBase={apiBase}
+          isOpen={isBeatExpanderOpen}
+          onClose={() => setIsBeatExpanderOpen(false)}
+          onApplyProse={handleApplyBeatProse}
+        />
       )}
     </div>
   );

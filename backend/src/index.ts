@@ -1210,9 +1210,9 @@ app.post('/api/settings', async (req, res) => {
 // 6. AI DISPATCH API
 // ==========================================
 
-// Standard generation (non-streaming fallback)
+// Standard generation // Generate AI text (Non-streaming fallback)
 app.post('/api/ai/generate', async (req, res) => {
-  const { sceneId, prompt, history, action, selection, styleOverrides } = req.body;
+  const { sceneId, prompt, history, action, selection, beats, pacing, styleOverrides } = req.body;
   if (!sceneId) {
     return res.status(400).json({ error: 'sceneId is required' });
   }
@@ -1224,6 +1224,8 @@ app.post('/api/ai/generate', async (req, res) => {
       history,
       action,
       selection,
+      beats,
+      pacing,
       styleOverrides
     });
     
@@ -1235,7 +1237,7 @@ app.post('/api/ai/generate', async (req, res) => {
 
 // Real-time Streaming Generation (SSE)
 app.post('/api/ai/generate-stream', async (req, res) => {
-  const { sceneId, prompt, history, action, selection, styleOverrides } = req.body;
+  const { sceneId, prompt, history, action, selection, beats, pacing, styleOverrides } = req.body;
   if (!sceneId) {
     return res.status(400).json({ error: 'sceneId is required' });
   }
@@ -1260,6 +1262,8 @@ app.post('/api/ai/generate-stream', async (req, res) => {
         history,
         action,
         selection,
+        beats,
+        pacing,
         styleOverrides
       },
       (chunk: string) => {

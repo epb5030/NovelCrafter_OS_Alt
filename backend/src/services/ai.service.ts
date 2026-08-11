@@ -9,8 +9,10 @@ export interface GenerationOptions {
   sceneId: number;
   prompt?: string;        // Optional user prompt/instruction (for chat or custom commands)
   history?: ChatMessage[]; // Optional chat history
-  action?: 'continue' | 'chat' | 'rewrite' | 'summarize'; // Action type
+  action?: 'continue' | 'chat' | 'rewrite' | 'summarize' | 'expand_beats' | 'generate_beats' | 'critique'; // Action type
   selection?: string;     // Text selection (for rewrite/summarize)
+  beats?: string[];       // Scene beats for expansion
+  pacing?: 'concise' | 'standard' | 'elaborate'; // Expansion pacing dial
   // Optional runtime overrides
   styleOverrides?: {
     pov?: string;
@@ -179,6 +181,75 @@ Guidelines:
       messages.push({
         role: 'user',
         content: `Summarize the key events, revelations, and emotional beats in the following manuscript text:\n\n"""\n${options.selection || sceneText}\n"""`
+      });
+    } else if (options.action === 'expand_beats') {
+      const pacing = options.pacing || 'standard';
+      let pacingGuide = '';
+      if (pacing === 'concise') {
+        pacingGuide = 'Pacing: Concise & brisk (~100-150 words per beat). Focus on direct action and vital dialogue.';
+      } else if (pacing === 'elaborate') {
+        pacingGuide = 'Pacing: Elaborate, atmospheric & introspective (~350-500 words per beat). Rich sensory immersion, internal monologue, and environmental mood.';
+      } else {
+        pacingGuide = 'Pacing: Standard dramatic narrative (~200-250 words per beat). Balanced action, dialogue, and description.';
+      }
+
+      const beatsText = (options.beats || []).map((b, i) => `Beat ${i + 1}: ${b}`).join('\n');
+
+      messages.push({ role: 'system', content: systemPrompt });
+      messages.push({
+        role: 'user',
+        content: `Expand the following structured scene beats into a full, seamless narrative scene draft.
+${pacingGuide}
+
+Structured Scene Beats:
+${beatsText}
+
+${sceneText.trim() ? `(Existing Draft Context to flow naturally from/after):\n"""\n${sceneText.slice(-2000)}\n"""\n` : ''}
+Instructions:
+- Write continuous, engaging literary prose covering each beat in chronological order.
+- Do NOT output bullet points, "Beat 1:", or meta-commentary.
+- Connect the beats seamlessly into complete paragraphs.
+- Output raw story prose directly.`
+      });
+    } else if (options.action === 'generate_beats') {
+      messages.push({ role: 'system', content: 'You are an expert novel outliner and narrative architect.' });
+      messages.push({
+        role: 'user',
+        content: `Generate 4 to 6 chronological, action-oriented scene beats for this scene.
+Project: ${scene.project_title}
+Scene: ${scene.title}
+Scene Summary/Objective: ${scene.summary || 'No summary provided.'}
+
+${sceneText.trim() ? `Existing manuscript excerpt:\n"""\n${sceneText.slice(0, 1500)}\n"""\n` : ''}
+Output format:
+1. [Beat 1 description]
+2. [Beat 2 description]
+3. [Beat 3 description]
+4. [Beat 4 description]
+5. [Beat 5 description]`
+      });
+    } else if (options.action === 'critique') {
+      messages.push({
+        role: 'system',
+        content: 'You are a master developmental editor and literary prose doctor. Provide sharp, encouraging, and highly specific critique on manuscript pacing, dialogue realism, sensory detail, and emotional resonance.'
+      });
+      messages.push({
+        role: 'user',
+        content: `Please examine and critique this scene draft:
+Title: ${scene.title}
+Summary Objective: ${scene.summary || 'N/A'}
+
+Manuscript:
+"""
+${options.selection || sceneText}
+"""
+
+Please structure your diagnostic critique with:
+1. 🎯 Pacing & Narrative Momentum (Where does it drag or rush?)
+2. 💬 Dialogue & Subtext (Are character voices distinct?)
+3. 👁️ Sensory Immersion (Sight, sound, smell, tactile depth)
+4. ✂️ Show vs. Tell & Filter Words
+5. 💡 Top 3 Actionable Suggestions to elevate this scene.`
       });
     } else {
       // Default: 'chat' action
