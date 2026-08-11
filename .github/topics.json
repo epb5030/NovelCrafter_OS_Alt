@@ -1,0 +1,21 @@
+{
+  "name": "OpenCrafter Studio",
+  "description": "The privacy-first, self-hosted AI novel writing OS & story architecture studio.",
+  "topics": [
+    "ai-writing",
+    "novel-writing",
+    "storytelling",
+    "worldbuilding",
+    "ollama",
+    "gemini",
+    "openai",
+    "anthropic",
+    "react",
+    "typescript",
+    "epub-compiler",
+    "docx-compiler",
+    "cartography",
+    "character-arcs",
+    "self-hosted"
+  ]
+}

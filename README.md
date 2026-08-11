@@ -1,11 +1,11 @@
 # 📖 OpenCrafter Studio
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/epb5030/NovelCrafter_OS_Alt/main/docs/assets/banner.png" alt="OpenCrafter Studio Banner" width="100%" error="this.style.display='none'" />
+  <img src="docs/assets/banner.png" alt="OpenCrafter Studio Banner" width="100%" />
 </p>
 
 <p align="center">
-  <strong>The Ultimate Self-Hosted AI Novel Writing OS & Story Architecture Studio</strong>
+  <strong>The privacy-first, self-hosted AI novel writing OS & story architecture studio.</strong>
 </p>
 
 <p align="center">
@@ -17,6 +17,18 @@
 
 ---
 
+## ⚡ One-Line Quickstart
+
+Clone, install, build, and launch OpenCrafter in a single command:
+
+```bash
+git clone https://github.com/epb5030/NovelCrafter_OS_Alt.git && cd NovelCrafter_OS_Alt && npm --prefix backend install && npm --prefix frontend install && npm --prefix frontend run build && npm --prefix backend run build && node backend/dist/index.js
+```
+
+👉 **Access Live Studio**: Open **`http://localhost:3005`** in your browser.
+
+---
+
 ## 🔒 Security, Privacy & Runtime Defaults
 
 > **⚠️ PRIVACY & DATABASE WARNING**:
@@ -24,26 +36,17 @@
 > **NEVER commit `backend/data/` or `*.db` to git repositories or push them to public GitHub repos.**
 
 ### Key Management Best Practices
-
-1. **Environment Variable Priority (Recommended for Production)**:
-   Define your API keys in your environment or `.env` file. Environment variables **always override** database settings:
-   ```bash
-   OPENAI_API_KEY=sk-...
-   ANTHROPIC_API_KEY=sk-ant-...
-   GEMINI_API_KEY=AIzaSy...
-   OPENROUTER_API_KEY=sk-or-...
-   OLLAMA_CLOUD_API_KEY=...
-   ```
-2. **Server-Side AES-256-GCM Encryption**:
-   If you configure API keys via the Studio Settings UI, OpenCrafter automatically encrypts sensitive keys using **AES-256-GCM** before writing to SQLite.
-3. **1-Click Stored Key Wiping**:
-   You can strip all API keys from the SQLite database at any time by clicking **"🧹 Clear All Stored Keys"** in the Studio Settings UI or sending a POST request to `/api/settings/clear-keys`.
+- **Environment Variable Priority**: Set API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OLLAMA_CLOUD_API_KEY`) in `.env` to override SQLite settings.
+- **Server-Side AES-256-GCM Encryption**: API keys saved via the UI are encrypted server-side with AES-256-GCM before writing to disk.
+- **1-Click Stored Key Wiping**: Strip all API keys from SQLite at any time via **"🧹 Clear All Stored Keys"** in Studio Settings.
 
 ---
 
-## 🌟 Overview
+## 📋 Prerequisites
 
-**OpenCrafter** is an open-source, privacy-first alternative to commercial novel-writing software. Designed for fiction authors, worldbuilders, and story architects, OpenCrafter provides real-time AI co-writing, interactive plot matrix tracking, multi-track story timelines, cartographic world mapping, character voice tuning, and 1-click publishing compilation into ready-to-publish **EPUB 3** e-books and industry-standard **Microsoft Word (.docx)** manuscripts.
+- **Node.js**: v18.x or v20.x+
+- **npm**: v9.x+
+- **(Optional) Local AI**: [Ollama](https://ollama.com) running locally for 100% offline private writing.
 
 ---
 
@@ -82,62 +85,6 @@
 - **EPUB 3 E-Books**: Generates valid `.epub` packages with custom cover art, dynamic Table of Contents, and typography themes (*Classic Garamond, Modern Sans, Vintage Typewriter*).
 - **Microsoft Word (.docx)**: Compiles industry-standard Shunn literary submission format (double spaced, 1-inch margins, Times New Roman, author title page) and clean reading drafts.
 
-### 👤 Author Profiles & Social Sign-In
-- Multi-pen-name switcher and global studio preferences.
-- Google & GitHub OAuth 2.0 Single Sign-On flow with local fallback.
-
----
-
-## 🛠️ Technology Stack
-
-- **Frontend**: React 18, TypeScript, Vite, Vanilla CSS Design System, Lucide Icons.
-- **Backend**: Node.js, Express, SQLite (`better-sqlite3` / `sqlite`), Archiver (Binary EPUB/DOCX zip packaging), Node Crypto (AES-256-GCM).
-- **AI Streaming**: Server-Sent Events (SSE) streaming API handlers.
-
----
-
-## 🚀 Quickstart Guide
-
-### Prerequisites
-- [Node.js](https://nodejs.org) v18+ or v20+
-- [npm](https://www.npmjs.com) v9+
-- (Optional) [Ollama](https://ollama.com) installed locally for 100% offline private AI writing.
-
-### Installation
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/epb5030/NovelCrafter_OS_Alt.git
-   cd NovelCrafter_OS_Alt
-   ```
-
-2. **Install dependencies**:
-   ```bash
-   npm --prefix backend install
-   npm --prefix frontend install
-   ```
-
-3. **Set up Environment Variables**:
-   ```bash
-   cp .env.example .env
-   ```
-
-4. **Run in Development Mode**:
-   ```bash
-   npm --prefix backend run dev
-   # In a second terminal:
-   npm --prefix frontend run dev
-   ```
-   Open **`http://localhost:3000`** in your browser.
-
-5. **Build and Run Production Server**:
-   ```bash
-   npm --prefix frontend run build
-   npm --prefix backend run build
-   node backend/dist/index.js
-   ```
-   Open **`http://localhost:3005`** in your browser.
-
 ---
 
 ## 🐳 Docker Deployment
@@ -151,12 +98,9 @@ Access the application at `http://localhost:3005`.
 
 ---
 
-## 🔒 Security & Privacy
+## 🏷️ Repository Topics
 
-OpenCrafter is designed with local-first privacy:
-- Your manuscript text, project databases, and API keys are stored locally on your machine in `backend/data/novels.db`.
-- When using local Ollama, no story content ever leaves your local network.
-- For vulnerability reports, please see our [SECURITY.md](SECURITY.md).
+`ai-writing` • `novel-writing` • `storytelling` • `worldbuilding` • `ollama` • `gemini` • `openai` • `anthropic` • `react` • `typescript` • `epub-compiler` • `docx-compiler` • `cartography` • `character-arcs` • `self-hosted`
 
 ---
 
