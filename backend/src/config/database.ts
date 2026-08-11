@@ -118,6 +118,25 @@ async function initializeSchema(db: Database) {
     )
   `);
 
+  // Character Arc & Plot Matrix Table
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS scene_character_matrix (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      scene_id INTEGER NOT NULL,
+      character_id INTEGER NOT NULL,
+      role TEXT DEFAULT 'participant', -- 'pov', 'participant', 'mentioned', 'absent'
+      emotional_state TEXT,
+      arc_notes TEXT,
+      tension_level INTEGER DEFAULT 3, -- 1 to 5
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(scene_id, character_id),
+      FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY(scene_id) REFERENCES outline_elements(id) ON DELETE CASCADE,
+      FOREIGN KEY(character_id) REFERENCES codex_entries(id) ON DELETE CASCADE
+    )
+  `);
+
   // Settings table for storing local configs & credentials securely (API keys)
   await db.exec(`
     CREATE TABLE IF NOT EXISTS settings (

@@ -7,7 +7,8 @@ import {
   ChevronLeft, 
   Sparkles,
   Search,
-  Download
+  Download,
+  LayoutGrid
 } from 'lucide-react';
 import type { AuthorProfile } from './AccountModal';
 
@@ -39,6 +40,7 @@ export const Layout: React.FC<LayoutProps> = ({
   const menuItems = [
     { id: 'write', label: 'Write', icon: BookOpen },
     { id: 'outline', label: 'Outline', icon: Map },
+    { id: 'matrix', label: 'Plot Matrix', icon: LayoutGrid },
     { id: 'codex', label: 'Codex', icon: Database },
     { id: 'settings', label: 'Settings', icon: SettingsIcon },
   ];

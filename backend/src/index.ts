@@ -1696,6 +1696,141 @@ app.post('/api/auth/social-connect', async (req, res) => {
 });
 
 // ==========================================
+// 9. CHARACTER ARC & PLOT MATRIX API
+// ==========================================
+
+// Get entire Plot Matrix data for a project (scenes, character entities, and cell states)
+app.get('/api/projects/:projectId/matrix', async (req, res) => {
+  const { projectId } = req.params;
+  try {
+    const db = await getDatabase();
+
+    // 1. Fetch scenes in sequential outline order
+    const scenes = await db.all(`
+      SELECT o.id, o.title, o.type, o.position, o.parent_id, o.summary, o.status,
+             p.title as parent_title
+      FROM outline_elements o
+      LEFT JOIN outline_elements p ON o.parent_id = p.id
+      WHERE o.project_id = ? AND o.type = 'scene'
+      ORDER BY o.position ASC, o.id ASC
+    `, projectId);
+
+    // 2. Fetch characters from codex
+    const characters = await db.all(`
+      SELECT id, name, category, aliases, description, notes
+      FROM codex_entries
+      WHERE project_id = ? AND category = 'character'
+      ORDER BY name ASC
+    `, projectId);
+
+    // 3. Fetch matrix cells
+    const cells = await db.all(`
+      SELECT id, scene_id, character_id, role, emotional_state, arc_notes, tension_level
+      FROM scene_character_matrix
+      WHERE project_id = ?
+    `, projectId);
+
+    res.json({
+      scenes,
+      characters,
+      cells
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Upsert a matrix cell
+app.post('/api/projects/:projectId/matrix/cell', async (req, res) => {
+  const { projectId } = req.params;
+  const { sceneId, characterId, role, emotionalState, arcNotes, tensionLevel } = req.body;
+
+  if (!sceneId || !characterId) {
+    return res.status(400).json({ error: 'sceneId and characterId are required' });
+  }
+
+  try {
+    const db = await getDatabase();
+    await db.run(`
+      INSERT INTO scene_character_matrix (project_id, scene_id, character_id, role, emotional_state, arc_notes, tension_level)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(scene_id, character_id) DO UPDATE SET
+        role = excluded.role,
+        emotional_state = excluded.emotional_state,
+        arc_notes = excluded.arc_notes,
+        tension_level = excluded.tension_level
+    `, projectId, sceneId, characterId, role || 'participant', emotionalState || '', arcNotes || '', tensionLevel || 3);
+
+    const updatedCell = await db.get(`
+      SELECT * FROM scene_character_matrix WHERE scene_id = ? AND character_id = ?
+    `, sceneId, characterId);
+
+    res.json(updatedCell);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Auto-populate matrix by scanning manuscript text and summaries
+app.post('/api/projects/:projectId/matrix/auto-populate', async (req, res) => {
+  const { projectId } = req.params;
+  try {
+    const db = await getDatabase();
+
+    const scenes = await db.all(`
+      SELECT o.id, o.title, o.summary, sc.content 
+      FROM outline_elements o
+      LEFT JOIN scene_contents sc ON o.id = sc.scene_id
+      WHERE o.project_id = ? AND o.type = 'scene'
+    `, projectId);
+
+    const characters = await db.all(`
+      SELECT id, name, aliases FROM codex_entries 
+      WHERE project_id = ? AND category = 'character'
+    `, projectId);
+
+    let populatedCount = 0;
+
+    for (const scene of scenes) {
+      const fullText = `${scene.title} ${scene.summary || ''} ${scene.content || ''}`.toLowerCase();
+
+      for (const char of characters) {
+        const nameLower = char.name.toLowerCase();
+        const aliasList = (char.aliases || '').split(',').map((a: string) => a.trim().toLowerCase()).filter(Boolean);
+        const searchTerms = [nameLower, ...aliasList];
+
+        let isMatch = false;
+        let matchCount = 0;
+
+        for (const term of searchTerms) {
+          const regex = new RegExp(`\\b${term}\\b`, 'gi');
+          const matches = fullText.match(regex);
+          if (matches) {
+            isMatch = true;
+            matchCount += matches.length;
+          }
+        }
+
+        if (isMatch) {
+          const role = matchCount > 4 ? 'pov' : matchCount >= 2 ? 'participant' : 'mentioned';
+          await db.run(`
+            INSERT INTO scene_character_matrix (project_id, scene_id, character_id, role, tension_level)
+            VALUES (?, ?, ?, ?, 3)
+            ON CONFLICT(scene_id, character_id) DO UPDATE SET
+              role = excluded.role
+          `, projectId, scene.id, char.id, role);
+          populatedCount++;
+        }
+      }
+    }
+
+    res.json({ message: `Successfully scanned and updated ${populatedCount} matrix cell connections!`, count: populatedCount });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
 // PRODUCTION FRONTEND STATIC SERVING
 // ==========================================
 
