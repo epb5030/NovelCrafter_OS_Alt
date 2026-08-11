@@ -134,6 +134,8 @@ async function initializeSchema(db: Database) {
     { key: 'anthropic_model', value: 'claude-3-5-sonnet-20240620' },
     { key: 'openrouter_api_key', value: '' },
     { key: 'openrouter_model', value: 'meta-llama/llama-3-8b-instruct:free' },
+    { key: 'gemini_api_key', value: '' },
+    { key: 'gemini_model', value: 'gemini-2.0-flash' },
     { key: 'ollama_url', value: 'http://localhost:11434' },
     { key: 'ollama_model', value: 'llama3' },
     { key: 'active_provider', value: 'ollama' },

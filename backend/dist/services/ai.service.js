@@ -30,6 +30,11 @@ class AIService {
             model = await this.getSetting('openrouter_model') || 'meta-llama/llama-3-8b-instruct:free';
             endpoint = 'https://openrouter.ai/api/v1/chat/completions';
         }
+        else if (activeProvider === 'gemini') {
+            apiKey = await this.getSetting('gemini_api_key');
+            model = await this.getSetting('gemini_model') || 'gemini-2.0-flash';
+            endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`;
+        }
         else {
             // Default: Ollama
             model = await this.getSetting('ollama_model') || 'llama3';
@@ -297,6 +302,24 @@ Please structure your diagnostic critique with:
                 stream: true
             };
         }
+        else if (provider === 'gemini') {
+            const systemMessage = messages.find(m => m.role === 'system');
+            const geminiContents = messages
+                .filter(m => m.role !== 'system')
+                .map(m => ({
+                role: m.role === 'assistant' ? 'model' : 'user',
+                parts: [{ text: m.content }]
+            }));
+            body = {
+                contents: geminiContents,
+                system_instruction: {
+                    parts: [{ text: systemMessage ? systemMessage.content : systemPrompt }]
+                },
+                generationConfig: {
+                    temperature: 0.7
+                }
+            };
+        }
         else {
             // Ollama
             body = {
@@ -371,7 +394,24 @@ Please structure your diagnostic critique with:
                             catch (_) { }
                         }
                     }
-                    // 3. OpenAI & OpenRouter SSE format
+                    // 3. Google Gemini SSE format
+                    else if (provider === 'gemini') {
+                        if (trimmed.startsWith('data:')) {
+                            const jsonStr = trimmed.replace(/^data:\s*/, '');
+                            if (jsonStr === '[DONE]')
+                                continue;
+                            try {
+                                const parsed = JSON.parse(jsonStr);
+                                const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
+                                if (textChunk) {
+                                    fullAccumulatedText += textChunk;
+                                    onChunk(textChunk);
+                                }
+                            }
+                            catch (_) { }
+                        }
+                    }
+                    // 4. OpenAI & OpenRouter SSE format
                     else {
                         if (trimmed.startsWith('data:')) {
                             const jsonStr = trimmed.replace(/^data:\s*/, '');

@@ -209,9 +209,10 @@ export const Settings: React.FC<SettingsProps> = ({
             <h3 style={{ color: '#ffffff', fontSize: '16px' }}>Active LLM Provider</h3>
           </div>
           
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
             {[
               { id: 'ollama', label: 'Ollama (Local)', desc: 'Run offline first' },
+              { id: 'gemini', label: 'Google Gemini', desc: '1M+ Context / Gemini 2.0' },
               { id: 'openai', label: 'OpenAI', desc: 'GPT-4o / GPT-4o-mini' },
               { id: 'anthropic', label: 'Anthropic', desc: 'Claude 3.5 Sonnet' },
               { id: 'openrouter', label: 'OpenRouter', desc: 'Any open-source model' }
@@ -241,6 +242,45 @@ export const Settings: React.FC<SettingsProps> = ({
             ))}
           </div>
         </div>
+
+        {/* 1B. Google Gemini Configs */}
+        {activeProvider === 'gemini' && (
+          <div className="glass-panel" style={{ padding: '20px', border: '1px solid var(--border-light)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+              <Sparkles size={18} style={{ color: 'var(--primary)' }} />
+              <div>
+                <h3 style={{ color: '#ffffff', fontSize: '16px' }}>Google Gemini (Google AI Studio)</h3>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Massive 1M+ context window for full-book consistency.</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label className="label">Google AI Studio API Key</label>
+                <input 
+                  type="password" 
+                  value={settings.gemini_api_key || ''} 
+                  onChange={(e) => updateSetting('gemini_api_key', e.target.value)} 
+                  className="input" 
+                  placeholder="AIzaSy..."
+                  required 
+                />
+              </div>
+
+              <div>
+                <label className="label">Model Tag</label>
+                <input 
+                  type="text" 
+                  value={settings.gemini_model || ''} 
+                  onChange={(e) => updateSetting('gemini_model', e.target.value)} 
+                  className="input" 
+                  placeholder="e.g. gemini-2.0-flash, gemini-1.5-pro, gemini-1.5-flash"
+                  required 
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 1. Ollama Configs */}
         {activeProvider === 'ollama' && (
