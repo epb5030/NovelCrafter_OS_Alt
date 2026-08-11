@@ -26,14 +26,16 @@ import {
   Package,
   FileText,
   Timer,
-  Flame,
-  Stethoscope,
-  ListOrdered
+  Flame, 
+  Stethoscope, 
+  ListOrdered,
+  Mic
 } from 'lucide-react';
 import type { CodexEntry } from './CodexManager';
 import type { OutlineElement } from './OutlinePlanner';
 import { ProseDoctorModal } from './ProseDoctorModal';
 import { BeatExpanderModal } from './BeatExpanderModal';
+import { VoiceDoctorModal } from './VoiceDoctorModal';
 
 interface WriteEditorProps {
   projectId: number;
@@ -112,9 +114,10 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
   const [sprintWordsWritten, setSprintWordsWritten] = useState(0);
   const [sprintSummary, setSprintSummary] = useState<{ words: number; minutes: number; wpm: number } | null>(null);
 
-  // Phase 4 States: Prose Doctor & Beat Expander
+  // Phase 4 & 8 States: Prose Doctor, Beat Expander & Voice Doctor
   const [isProseDoctorOpen, setIsProseDoctorOpen] = useState(false);
   const [isBeatExpanderOpen, setIsBeatExpanderOpen] = useState(false);
+  const [isVoiceDoctorOpen, setIsVoiceDoctorOpen] = useState(false);
 
   const handleApplyBeatProse = async (generatedProse: string, mode: 'append' | 'replace') => {
     if (!activeSceneId) return;
@@ -974,6 +977,15 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
                     title="Open AI Prose Doctor & Stylistic Diagnostics"
                   >
                     <Stethoscope size={13} style={{ color: '#34d399' }} /> Prose Doctor
+                  </button>
+
+                  <button 
+                    onClick={() => setIsVoiceDoctorOpen(true)}
+                    className="btn btn-secondary"
+                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                    title="Analyze character dialogue distinctiveness and tune voices with AI"
+                  >
+                    <Mic size={13} style={{ color: '#38bdf8' }} /> Voice Doctor
                   </button>
 
                   <button
@@ -1977,6 +1989,14 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
           onApplyProse={handleApplyBeatProse}
         />
       )}
+
+      {/* VOICE DOCTOR MODAL */}
+      <VoiceDoctorModal
+        projectId={projectId}
+        apiBase={apiBase}
+        isOpen={isVoiceDoctorOpen}
+        onClose={() => setIsVoiceDoctorOpen(false)}
+      />
     </div>
   );
 };

@@ -21,6 +21,10 @@ export interface CodexEntry {
   category: 'character' | 'location' | 'item' | 'lore';
   description: string;
   notes: string;
+  voice_traits?: string;
+  catchphrases?: string;
+  formality_level?: number;
+  pace_cadence?: string;
   created_at: string;
   updated_at: string;
 }
@@ -65,6 +69,12 @@ export const CodexManager: React.FC<CodexManagerProps> = ({ projectId, apiBase }
   const [category, setCategory] = useState<'character' | 'location' | 'item' | 'lore'>('character');
   const [description, setDescription] = useState('');
   const [notes, setNotes] = useState('');
+  
+  // Voice Persona states for Character
+  const [voiceTraits, setVoiceTraits] = useState('');
+  const [catchphrases, setCatchphrases] = useState('');
+  const [formalityLevel, setFormalityLevel] = useState(3);
+  const [paceCadence, setPaceCadence] = useState('balanced');
 
   // Modal states for Relationship
   const [isRelModalOpen, setIsRelModalOpen] = useState(false);
@@ -134,6 +144,10 @@ export const CodexManager: React.FC<CodexManagerProps> = ({ projectId, apiBase }
     setCategory('character');
     setDescription('');
     setNotes('');
+    setVoiceTraits('');
+    setCatchphrases('');
+    setFormalityLevel(3);
+    setPaceCadence('balanced');
     setIsOpen(true);
   };
 
@@ -144,6 +158,10 @@ export const CodexManager: React.FC<CodexManagerProps> = ({ projectId, apiBase }
     setCategory(entry.category);
     setDescription(entry.description || '');
     setNotes(entry.notes || '');
+    setVoiceTraits(entry.voice_traits || '');
+    setCatchphrases(entry.catchphrases || '');
+    setFormalityLevel(entry.formality_level || 3);
+    setPaceCadence(entry.pace_cadence || 'balanced');
     setIsOpen(true);
   };
 
@@ -151,7 +169,17 @@ export const CodexManager: React.FC<CodexManagerProps> = ({ projectId, apiBase }
     e.preventDefault();
     if (!name.trim()) return;
 
-    const payload = { name, aliases, category, description, notes };
+    const payload = { 
+      name, 
+      aliases, 
+      category, 
+      description, 
+      notes,
+      voice_traits: voiceTraits,
+      catchphrases,
+      formality_level: formalityLevel,
+      pace_cadence: paceCadence
+    };
     const url = editingEntry 
       ? `${apiBase}/projects/${projectId}/codex/${editingEntry.id}`
       : `${apiBase}/projects/${projectId}/codex`;
@@ -657,6 +685,56 @@ export const CodexManager: React.FC<CodexManagerProps> = ({ projectId, apiBase }
                   rows={2}
                 />
               </div>
+
+              {category === 'character' && (
+                <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '12px', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <span className="label" style={{ color: 'var(--primary)', margin: 0, fontWeight: 700 }}>
+                    🎭 Character Speech Persona & Voice Profile
+                  </span>
+
+                  <div>
+                    <label className="label" style={{ fontSize: '11px' }}>Explicit Voice Traits & Speech Habits</label>
+                    <input
+                      type="text"
+                      value={voiceTraits}
+                      onChange={(e) => setVoiceTraits(e.target.value)}
+                      placeholder="e.g. Speaks in short clipped military sentences, avoids contractions, sarcastic"
+                      className="input"
+                      style={{ fontSize: '12px' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label className="label" style={{ fontSize: '11px' }}>Catchphrases / Recurring Idioms</label>
+                      <input
+                        type="text"
+                        value={catchphrases}
+                        onChange={(e) => setCatchphrases(e.target.value)}
+                        placeholder="e.g. 'By the iron crown'"
+                        className="input"
+                        style={{ fontSize: '12px' }}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="label" style={{ fontSize: '11px' }}>Speech Cadence</label>
+                      <select
+                        value={paceCadence}
+                        onChange={(e) => setPaceCadence(e.target.value)}
+                        className="input"
+                        style={{ fontSize: '12px' }}
+                      >
+                        <option value="punchy">Punchy & Staccato</option>
+                        <option value="balanced">Balanced Narrative</option>
+                        <option value="eloquent">Eloquent & Lyrical</option>
+                        <option value="rambling">Nervous & Rambling</option>
+                        <option value="cryptic">Cryptic & Whispered</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Display existing relationships for this entry */}
               {editingEntry && (

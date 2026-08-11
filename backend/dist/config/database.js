@@ -51,6 +51,10 @@ async function initializeSchema(db) {
       category TEXT NOT NULL,
       description TEXT,
       notes TEXT,
+      voice_traits TEXT,
+      catchphrases TEXT,
+      formality_level INTEGER DEFAULT 3,
+      pace_cadence TEXT DEFAULT 'balanced',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -181,6 +185,23 @@ async function initializeSchema(db) {
     catch (_) { }
     try {
         await db.exec('ALTER TABLE author_profiles ADD COLUMN oauth_id TEXT');
+    }
+    catch (_) { }
+    // Ensure voice columns exist on codex_entries
+    try {
+        await db.exec('ALTER TABLE codex_entries ADD COLUMN voice_traits TEXT');
+    }
+    catch (_) { }
+    try {
+        await db.exec('ALTER TABLE codex_entries ADD COLUMN catchphrases TEXT');
+    }
+    catch (_) { }
+    try {
+        await db.exec('ALTER TABLE codex_entries ADD COLUMN formality_level INTEGER DEFAULT 3');
+    }
+    catch (_) { }
+    try {
+        await db.exec("ALTER TABLE codex_entries ADD COLUMN pace_cadence TEXT DEFAULT 'balanced'");
     }
     catch (_) { }
     // Seed default author profile if none exist

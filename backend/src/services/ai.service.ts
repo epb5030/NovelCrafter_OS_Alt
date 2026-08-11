@@ -85,35 +85,38 @@ export class AIService {
       throw new Error(`API key is missing for provider: ${activeProvider}. Please add your key in Settings.`);
     }
 
-    // 2. Fetch Scene & Project Context
-    const scene = await db.get(`
-      SELECT o.*, p.title as project_title, p.summary as project_summary 
-      FROM outline_elements o
-      JOIN projects p ON o.project_id = p.id
-      WHERE o.id = ?
-    `, options.sceneId);
+    // 2. Fetch Scene & Project Context (if sceneId provided)
+    let scene: any = null;
+    let sceneText = '';
+    let activeEntries: any[] = [];
 
-    if (!scene) {
-      throw new Error(`Scene ID ${options.sceneId} not found.`);
-    }
+    if (options.sceneId) {
+      scene = await db.get(`
+        SELECT o.*, p.title as project_title, p.summary as project_summary 
+        FROM outline_elements o
+        JOIN projects p ON o.project_id = p.id
+        WHERE o.id = ?
+      `, options.sceneId);
 
-    const sceneContentRow = await db.get('SELECT content FROM scene_contents WHERE scene_id = ?', options.sceneId);
-    const sceneText = sceneContentRow ? sceneContentRow.content : '';
+      if (scene) {
+        const sceneContentRow = await db.get('SELECT content FROM scene_contents WHERE scene_id = ?', options.sceneId);
+        sceneText = sceneContentRow ? sceneContentRow.content : '';
 
-    // 3. Extract Codex entries relevant to the scene
-    const codexEntries = await db.all('SELECT * FROM codex_entries WHERE project_id = ?', scene.project_id);
-    const metadataIds: number[] = JSON.parse(scene.metadata || '[]');
-    const textToLower = sceneText.toLowerCase();
+        const codexEntries = await db.all('SELECT * FROM codex_entries WHERE project_id = ?', scene.project_id);
+        const metadataIds: number[] = JSON.parse(scene.metadata || '[]');
+        const textToLower = sceneText.toLowerCase();
 
-    const activeEntries = codexEntries.filter(entry => {
-      if (metadataIds.includes(entry.id)) return true;
-      if (textToLower.includes(entry.name.toLowerCase())) return true;
-      if (entry.aliases) {
-        const aliasList = entry.aliases.split(',').map((a: string) => a.trim().toLowerCase());
-        return aliasList.some((alias: string) => alias && textToLower.includes(alias));
+        activeEntries = codexEntries.filter(entry => {
+          if (metadataIds.includes(entry.id)) return true;
+          if (textToLower.includes(entry.name.toLowerCase())) return true;
+          if (entry.aliases) {
+            const aliasList = entry.aliases.split(',').map((a: string) => a.trim().toLowerCase());
+            return aliasList.some((alias: string) => alias && textToLower.includes(alias));
+          }
+          return false;
+        });
       }
-      return false;
-    });
+    }
 
     let codexContext = '';
     if (activeEntries.length > 0) {
@@ -154,12 +157,14 @@ ${customRules ? `- Author Custom Guidelines: ${customRules}` : ''}
 `;
 
     // 5. System Prompt Construction
-    const systemPrompt = `You are a professional co-writer assistant helping an author draft their manuscript.
-Story Details:
+    const storyDetails = scene ? `Story Details:
 - Project Title: ${scene.project_title}
 - Project Concept: ${scene.project_summary || 'No overall project summary provided.'}
 - Active Scene: ${scene.title}
-- Active Scene Outline/Summary: ${scene.summary || 'No scene summary provided.'}
+- Active Scene Outline/Summary: ${scene.summary || 'No scene summary provided.'}` : '';
+
+    const systemPrompt = `You are a professional co-writer assistant helping an author draft their manuscript.
+${storyDetails}
 
 ${styleInstructions}
 ${codexContext}

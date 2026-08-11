@@ -1829,6 +1829,232 @@ app.post('/api/projects/:projectId/timeline/auto-generate', async (req, res) => 
     }
 });
 // ==========================================
+// 11. AI CHARACTER VOICE & DIALOGUE DOCTOR API
+// ==========================================
+// Analyze dialogue distinctiveness, lines, contraction ratios, and speech cadence across project
+app.get('/api/projects/:projectId/dialogue/analysis', async (req, res) => {
+    const { projectId } = req.params;
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const characters = await db.all(`
+      SELECT id, name, aliases, description, voice_traits, catchphrases, formality_level, pace_cadence
+      FROM codex_entries
+      WHERE project_id = ? AND category = 'character'
+      ORDER BY name ASC
+    `, projectId);
+        const scenes = await db.all(`
+      SELECT o.id, o.title, sc.content
+      FROM outline_elements o
+      LEFT JOIN scene_contents sc ON o.id = sc.scene_id
+      WHERE o.project_id = ? AND o.type = 'scene'
+      ORDER BY o.position ASC, o.id ASC
+    `, projectId);
+        // Contraction regex list
+        const contractionsRegex = /\b(can't|cannot|don't|won't|wouldn't|shouldn't|couldn't|i'm|i'll|you're|we're|they're|it's|that's|what's|let's|ain't|gonna|wanna|gotta)\b/gi;
+        const statsMap = {};
+        characters.forEach(c => {
+            statsMap[c.id] = {
+                character: c,
+                totalLines: 0,
+                totalWords: 0,
+                avgWordsPerLine: 0,
+                contractionCount: 0,
+                contractionPct: 0,
+                formalityScore: c.formality_level || 3,
+                uniqueWords: [],
+                quotes: []
+            };
+        });
+        const unassignedQuotes = [];
+        const allWordsByChar = {};
+        characters.forEach(c => { allWordsByChar[c.id] = new Set(); });
+        // Quote matcher: matches "..." or “...”
+        const quoteRegex = /["“]([^"”]+)["”]/g;
+        for (const scene of scenes) {
+            const text = scene.content || '';
+            let match;
+            while ((match = quoteRegex.exec(text)) !== null) {
+                const quote = match[1].trim();
+                if (quote.length < 2)
+                    continue;
+                const matchIndex = match.index;
+                // Search a 150-char window before and after the quote for speaker attribution
+                const beforeWindow = text.slice(Math.max(0, matchIndex - 120), matchIndex);
+                const afterWindow = text.slice(matchIndex + match[0].length, Math.min(text.length, matchIndex + match[0].length + 120));
+                const contextWindow = `${beforeWindow} [QUOTE] ${afterWindow}`;
+                let matchedCharId = null;
+                const attVerbs = 'said|asked|replied|whispered|exclaimed|shouted|muttered|murmured|added|continued|smirked|grunted|called|yelled|demanded';
+                // Priority 1: Match explicit dialogue attribution in afterWindow (e.g. "Lyra said", "said Lyra")
+                for (const char of characters) {
+                    const names = [char.name, ...(char.aliases || '').split(',').map((a) => a.trim())].filter(Boolean);
+                    for (const name of names) {
+                        const postPattern = new RegExp(`^\\s*,?\\s*(?:(?:${attVerbs})\\s+)?\\b${name}\\b|\\b${name}\\b\\s+(?:${attVerbs})\\b`, 'i');
+                        if (postPattern.test(afterWindow)) {
+                            matchedCharId = char.id;
+                            break;
+                        }
+                    }
+                    if (matchedCharId)
+                        break;
+                }
+                // Priority 2: Fallback to beforeWindow attribution (e.g. "Lyra said, ...")
+                if (!matchedCharId) {
+                    for (const char of characters) {
+                        const names = [char.name, ...(char.aliases || '').split(',').map((a) => a.trim())].filter(Boolean);
+                        for (const name of names) {
+                            const prePattern = new RegExp(`\\b${name}\\b\\s+(?:${attVerbs})`, 'i');
+                            if (prePattern.test(beforeWindow)) {
+                                matchedCharId = char.id;
+                                break;
+                            }
+                        }
+                        if (matchedCharId)
+                            break;
+                    }
+                }
+                // Priority 3: General fallback check
+                if (!matchedCharId) {
+                    for (const char of characters) {
+                        const names = [char.name, ...(char.aliases || '').split(',').map((a) => a.trim())].filter(Boolean);
+                        for (const name of names) {
+                            const pattern = new RegExp(`\\b${name}\\b`, 'i');
+                            if (pattern.test(afterWindow) || pattern.test(beforeWindow)) {
+                                matchedCharId = char.id;
+                                break;
+                            }
+                        }
+                        if (matchedCharId)
+                            break;
+                    }
+                }
+                const words = quote.split(/\s+/).filter(Boolean);
+                const wordCount = words.length;
+                const contractions = (quote.match(contractionsRegex) || []).length;
+                if (matchedCharId && statsMap[matchedCharId]) {
+                    const charStat = statsMap[matchedCharId];
+                    charStat.totalLines++;
+                    charStat.totalWords += wordCount;
+                    charStat.contractionCount += contractions;
+                    if (charStat.quotes.length < 15) {
+                        charStat.quotes.push({
+                            sceneId: scene.id,
+                            sceneTitle: scene.title,
+                            quote,
+                            contextSnippet: contextWindow.slice(0, 180)
+                        });
+                    }
+                    words.forEach(w => {
+                        const clean = w.toLowerCase().replace(/[^a-z0-9]/g, '');
+                        if (clean.length > 3)
+                            allWordsByChar[matchedCharId].add(clean);
+                    });
+                }
+                else {
+                    if (unassignedQuotes.length < 15) {
+                        unassignedQuotes.push({
+                            sceneId: scene.id,
+                            sceneTitle: scene.title,
+                            quote
+                        });
+                    }
+                }
+            }
+        }
+        // Finalize averages and compute unique vocabulary
+        const characterReports = characters.map(c => {
+            const stat = statsMap[c.id];
+            stat.avgWordsPerLine = stat.totalLines > 0 ? Math.round((stat.totalWords / stat.totalLines) * 10) / 10 : 0;
+            stat.contractionPct = stat.totalWords > 0 ? Math.round((stat.contractionCount / stat.totalWords) * 100) : 0;
+            // Find words used only by this character
+            const myWords = Array.from(allWordsByChar[c.id]);
+            const unique = myWords.filter(w => {
+                return characters.every(other => other.id === c.id || !allWordsByChar[other.id].has(w));
+            });
+            stat.uniqueWords = unique.slice(0, 10);
+            return stat;
+        }).filter(stat => stat.totalLines > 0 || stat.character.voice_traits);
+        // Global voice distinctiveness score (0-100)
+        let globalDistinctiveness = 75;
+        if (characterReports.length >= 2) {
+            const avgSentenceLengths = characterReports.map(c => c.avgWordsPerLine);
+            const variance = Math.max(...avgSentenceLengths) - Math.min(...avgSentenceLengths);
+            globalDistinctiveness = Math.min(95, Math.max(40, Math.round(50 + variance * 4)));
+        }
+        res.json({
+            characters: characterReports,
+            unassignedCount: unassignedQuotes.length,
+            unassignedQuotes,
+            globalDistinctiveness
+        });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Update Character Voice Persona in Codex
+app.put('/api/projects/:projectId/codex/:id/voice', async (req, res) => {
+    const { id } = req.params;
+    const { voiceTraits, catchphrases, formalityLevel, paceCadence } = req.body;
+    try {
+        const db = await (0, database_1.getDatabase)();
+        await db.run(`
+      UPDATE codex_entries
+      SET voice_traits = ?,
+          catchphrases = ?,
+          formality_level = ?,
+          pace_cadence = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, voiceTraits || '', catchphrases || '', formalityLevel || 3, paceCadence || 'balanced', id);
+        const updated = await db.get('SELECT * FROM codex_entries WHERE id = ?', id);
+        res.json(updated);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// AI Tune Dialogue Line in Character's authentic voice
+app.post('/api/projects/:projectId/dialogue/tune-line', async (req, res) => {
+    const { projectId } = req.params;
+    const { characterId, line, context, customGuidance } = req.body;
+    if (!characterId || !line) {
+        return res.status(400).json({ error: 'characterId and line are required' });
+    }
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const character = await db.get('SELECT * FROM codex_entries WHERE id = ? AND project_id = ?', characterId, projectId);
+        if (!character)
+            return res.status(404).json({ error: 'Character not found' });
+        const voicePrompt = `You are a master character voice editor and dialogue doctor for fiction.
+Your task is to rewrite the spoken dialogue line to sound 100% authentically in the distinctive voice of: **${character.name}**.
+
+### Character Persona & Speech Guidelines:
+- Character Role/Description: ${character.description || 'N/A'}
+- Explicit Voice Traits: ${character.voice_traits || 'Distinctive vocabulary, unique cadence'}
+- Recurring Idioms / Catchphrases: ${character.catchphrases || 'None specified'}
+- Formality Level (1=Slangy/Colloquial, 5=High Formal): ${character.formality_level || 3}/5
+- Speech Cadence: ${character.pace_cadence || 'balanced'}
+
+### Scene Context:
+${context || 'In an ongoing conversation.'}
+
+### Original Dialogue Line:
+"${line}"
+
+${customGuidance ? `### Author's Specific Tuning Note:\n${customGuidance}` : ''}
+
+### Instructions:
+1. Preserve the core dramatic meaning and intent of the line.
+2. Completely transform the vocabulary, sentence rhythm, contractions, and word choices to match the character's voice persona.
+3. Output ONLY the rewritten dialogue line inside quotes, followed by a 1-sentence explanation of what vocal changes were made.`;
+        const response = await ai_service_1.AIService.generate({ sceneId: 0, prompt: voicePrompt });
+        res.json({ tunedText: response });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// ==========================================
 // PRODUCTION FRONTEND STATIC SERVING
 // ==========================================
 const frontendBuildPath = path_1.default.join(__dirname, '../../frontend/dist');
