@@ -7,8 +7,8 @@ Quick Docker-based run (recommended):
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/epb5030/NovelCrafter_OS_Alt.git
-cd NovelCrafter_OS_Alt
+git clone https://github.com/epb5030/OpenCrafter_Studio.git
+cd OpenCrafter_Studio
 ```
 
 2. Start the application with Docker Compose (builds the frontend and runs the backend + SQLite):

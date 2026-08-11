@@ -4,16 +4,16 @@
 
 **The privacy-first, self-hosted AI novel writing OS & story architecture studio.**
 
-[License: MIT](https://github.com/epb5030/NovelCrafter_OS_Alt/blob/main/LICENSE) | [CI: Passing](https://github.com/epb5030/NovelCrafter_OS_Alt/actions) | [Node.js v20.x](https://nodejs.org) | [Ollama / Gemini / OpenAI / Anthropic](https://ollama.com)
+[License: MIT](https://github.com/epb5030/OpenCrafter_Studio/blob/main/LICENSE) | [CI: Passing](https://github.com/epb5030/OpenCrafter_Studio/actions) | [Node.js v20.x](https://nodejs.org) | [Ollama / Gemini / OpenAI / Anthropic](https://ollama.com)
 
 ---
 
 ## ⚡ One-Line Quickstart
 
-Clone, install, build, and launch OpenCrafter in a single command:
+Clone, install, build, and launch OpenCrafter Studio in a single command:
 
 ```bash
-git clone https://github.com/epb5030/NovelCrafter_OS_Alt.git && cd NovelCrafter_OS_Alt && npm --prefix backend install && npm --prefix frontend install && npm --prefix frontend run build && npm --prefix backend run build && node backend/dist/index.js
+git clone https://github.com/epb5030/OpenCrafter_Studio.git && cd OpenCrafter_Studio && npm --prefix backend install && npm --prefix frontend install && npm --prefix frontend run build && npm --prefix backend run build && node backend/dist/index.js
 ```
 
 👉 **Access Live Studio**: Open **`http://localhost:3005`** in your browser.
