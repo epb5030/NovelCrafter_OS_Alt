@@ -174,6 +174,36 @@ async function initializeSchema(db) {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+    // Phase 9: World Cartography & Map Pins Table
+    await db.exec(`
+    CREATE TABLE IF NOT EXISTS map_pins (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      codex_location_id INTEGER,
+      title TEXT NOT NULL,
+      x REAL NOT NULL,
+      y REAL NOT NULL,
+      pin_type TEXT DEFAULT 'city', -- 'city', 'fortress', 'wilderness', 'landmark', 'dungeon', 'portal'
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY(codex_location_id) REFERENCES codex_entries(id) ON DELETE SET NULL
+    )
+  `);
+    // Phase 9: Character Journey Paths Table
+    await db.exec(`
+    CREATE TABLE IF NOT EXISTS map_journeys (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      character_id INTEGER NOT NULL,
+      path_waypoints TEXT NOT NULL, -- JSON array of pin IDs e.g. [1, 3, 7]
+      color TEXT DEFAULT '#c89d54',
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY(character_id) REFERENCES codex_entries(id) ON DELETE CASCADE
+    )
+  `);
     // Ensure columns exist for existing databases
     try {
         await db.exec('ALTER TABLE author_profiles ADD COLUMN avatar_url TEXT');

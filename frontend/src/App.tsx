@@ -7,6 +7,7 @@ import { OutlinePlanner } from './components/OutlinePlanner';
 import { CodexManager } from './components/CodexManager';
 import { PlotMatrix } from './components/PlotMatrix';
 import { TimelineStudio } from './components/TimelineStudio';
+import { WorldMapStudio } from './components/WorldMapStudio';
 import { Settings } from './components/Settings';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { ExportModal } from './components/ExportModal';
@@ -146,6 +147,13 @@ function App() {
             projectId={activeProjectId} 
             apiBase={API_BASE} 
             onNavigateToScene={() => setActiveTab('write')}
+          />
+        );
+      case 'map':
+        return (
+          <WorldMapStudio 
+            projectId={activeProjectId} 
+            apiBase={API_BASE} 
           />
         );
       case 'codex':

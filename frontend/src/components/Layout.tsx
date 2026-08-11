@@ -9,7 +9,8 @@ import {
   Search,
   Download,
   LayoutGrid,
-  Clock
+  Clock,
+  Compass
 } from 'lucide-react';
 import type { AuthorProfile } from './AccountModal';
 
@@ -43,6 +44,7 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'outline', label: 'Outline', icon: Map },
     { id: 'matrix', label: 'Plot Matrix', icon: LayoutGrid },
     { id: 'timeline', label: 'Timeline', icon: Clock },
+    { id: 'map', label: 'World Map', icon: Compass },
     { id: 'codex', label: 'Codex', icon: Database },
     { id: 'settings', label: 'Settings', icon: SettingsIcon },
   ];

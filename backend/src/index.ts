@@ -2386,6 +2386,231 @@ ${customGuidance ? `### Author's Specific Tuning Note:\n${customGuidance}` : ''}
 });
 
 // ==========================================
+// 12. WORLD CARTOGRAPHY & INTERACTIVE MAP API
+// ==========================================
+
+// Get all map pins for project
+app.get('/api/projects/:projectId/map/pins', async (req, res) => {
+  const { projectId } = req.params;
+  try {
+    const db = await getDatabase();
+    const pins = await db.all(`
+      SELECT p.*, c.name as codex_name, c.description as codex_description
+      FROM map_pins p
+      LEFT JOIN codex_entries c ON p.codex_location_id = c.id
+      WHERE p.project_id = ?
+      ORDER BY p.id ASC
+    `, projectId);
+    res.json(pins);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create new map pin
+app.post('/api/projects/:projectId/map/pins', async (req, res) => {
+  const { projectId } = req.params;
+  const { title, x, y, pinType, codexLocationId, notes } = req.body;
+
+  if (!title || x === undefined || y === undefined) {
+    return res.status(400).json({ error: 'Title, X, and Y coordinates are required' });
+  }
+
+  try {
+    const db = await getDatabase();
+    const result = await db.run(`
+      INSERT INTO map_pins (project_id, codex_location_id, title, x, y, pin_type, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, projectId, codexLocationId || null, title.trim(), x, y, pinType || 'city', notes || '');
+
+    const newPin = await db.get(`
+      SELECT p.*, c.name as codex_name, c.description as codex_description
+      FROM map_pins p
+      LEFT JOIN codex_entries c ON p.codex_location_id = c.id
+      WHERE p.id = ?
+    `, result.lastID);
+
+    res.status(201).json(newPin);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update map pin
+app.put('/api/projects/:projectId/map/pins/:id', async (req, res) => {
+  const { id } = req.params;
+  const { title, x, y, pinType, codexLocationId, notes } = req.body;
+
+  try {
+    const db = await getDatabase();
+    await db.run(`
+      UPDATE map_pins
+      SET title = COALESCE(?, title),
+          x = COALESCE(?, x),
+          y = COALESCE(?, y),
+          pin_type = COALESCE(?, pin_type),
+          codex_location_id = ?,
+          notes = COALESCE(?, notes)
+      WHERE id = ?
+    `, title, x, y, pinType, codexLocationId !== undefined ? codexLocationId : null, notes, id);
+
+    const updated = await db.get(`
+      SELECT p.*, c.name as codex_name, c.description as codex_description
+      FROM map_pins p
+      LEFT JOIN codex_entries c ON p.codex_location_id = c.id
+      WHERE p.id = ?
+    `, id);
+
+    res.json(updated);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete map pin
+app.delete('/api/projects/:projectId/map/pins/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const db = await getDatabase();
+    await db.run('DELETE FROM map_pins WHERE id = ?', id);
+    res.json({ message: 'Map pin deleted' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get character journey paths
+app.get('/api/projects/:projectId/map/journeys', async (req, res) => {
+  const { projectId } = req.params;
+  try {
+    const db = await getDatabase();
+    const journeys = await db.all(`
+      SELECT j.*, c.name as character_name
+      FROM map_journeys j
+      JOIN codex_entries c ON j.character_id = c.id
+      WHERE j.project_id = ?
+      ORDER BY j.id ASC
+    `, projectId);
+
+    const parsed = journeys.map(j => ({
+      ...j,
+      path_waypoints: JSON.parse(j.path_waypoints || '[]')
+    }));
+
+    res.json(parsed);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create/Update character journey path
+app.post('/api/projects/:projectId/map/journeys', async (req, res) => {
+  const { projectId } = req.params;
+  const { characterId, pathWaypoints, color, notes } = req.body;
+
+  if (!characterId || !Array.isArray(pathWaypoints)) {
+    return res.status(400).json({ error: 'characterId and pathWaypoints array are required' });
+  }
+
+  try {
+    const db = await getDatabase();
+    const waypointsJson = JSON.stringify(pathWaypoints);
+
+    // Check if journey already exists for character
+    const existing = await db.get('SELECT id FROM map_journeys WHERE project_id = ? AND character_id = ?', projectId, characterId);
+
+    let journeyId: number;
+    if (existing) {
+      await db.run(`
+        UPDATE map_journeys
+        SET path_waypoints = ?, color = COALESCE(?, color), notes = COALESCE(?, notes)
+        WHERE id = ?
+      `, waypointsJson, color, notes, existing.id);
+      journeyId = existing.id;
+    } else {
+      const result = await db.run(`
+        INSERT INTO map_journeys (project_id, character_id, path_waypoints, color, notes)
+        VALUES (?, ?, ?, ?, ?)
+      `, projectId, characterId, waypointsJson, color || '#c89d54', notes || '');
+      journeyId = result.lastID!;
+    }
+
+    const journey = await db.get(`
+      SELECT j.*, c.name as character_name
+      FROM map_journeys j
+      JOIN codex_entries c ON j.character_id = c.id
+      WHERE j.id = ?
+    `, journeyId);
+
+    res.json({
+      ...journey,
+      path_waypoints: JSON.parse(journey.path_waypoints || '[]')
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete character journey path
+app.delete('/api/projects/:projectId/map/journeys/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const db = await getDatabase();
+    await db.run('DELETE FROM map_journeys WHERE id = ?', id);
+    res.json({ message: 'Journey path deleted' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Auto-populate map pins from Codex location entries
+app.post('/api/projects/:projectId/map/auto-populate', async (req, res) => {
+  const { projectId } = req.params;
+  try {
+    const db = await getDatabase();
+
+    const locationEntries = await db.all(`
+      SELECT id, name, description FROM codex_entries
+      WHERE project_id = ? AND category = 'location'
+    `, projectId);
+
+    const existingPins = await db.all('SELECT codex_location_id FROM map_pins WHERE project_id = ?', projectId);
+    const existingCodexIds = new Set(existingPins.map(p => p.codex_location_id));
+
+    const newLocations = locationEntries.filter(loc => !existingCodexIds.has(loc.id));
+    if (newLocations.length === 0) {
+      return res.json({ message: 'All Codex locations are already mapped!', addedCount: 0 });
+    }
+
+    let addedCount = 0;
+    // Layout new pins aesthetically on cartography canvas (x: 20-80%, y: 20-80%)
+    for (let i = 0; i < newLocations.length; i++) {
+      const loc = newLocations[i];
+      const angle = (i / newLocations.length) * 2 * Math.PI;
+      const x = Math.round(50 + 25 * Math.cos(angle));
+      const y = Math.round(50 + 25 * Math.sin(angle));
+
+      let pinType = 'city';
+      const nameLower = loc.name.toLowerCase();
+      if (nameLower.includes('fort') || nameLower.includes('castle') || nameLower.includes('keep')) pinType = 'fortress';
+      else if (nameLower.includes('forest') || nameLower.includes('river') || nameLower.includes('mountain') || nameLower.includes('sea')) pinType = 'wilderness';
+      else if (nameLower.includes('gate') || nameLower.includes('portal') || nameLower.includes('realm')) pinType = 'portal';
+      else if (nameLower.includes('ruin') || nameLower.includes('dungeon') || nameLower.includes('tomb')) pinType = 'dungeon';
+
+      await db.run(`
+        INSERT INTO map_pins (project_id, codex_location_id, title, x, y, pin_type, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `, projectId, loc.id, loc.name, x, y, pinType, loc.description || '');
+      addedCount++;
+    }
+
+    res.json({ message: `Successfully mapped ${addedCount} Codex locations to the world map!`, addedCount });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
 // PRODUCTION FRONTEND STATIC SERVING
 // ==========================================
 
