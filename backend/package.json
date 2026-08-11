@@ -1,7 +1,7 @@
 {
-  "name": "opencrafter-backend",
-  "version": "1.0.0",
-  "description": "Backend server for OpenCrafter application",
+  "name": "opencrafter-studio-backend",
+  "version": "1.3.0",
+  "description": "Backend server for OpenCrafter Studio",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
