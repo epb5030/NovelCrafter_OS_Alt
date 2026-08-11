@@ -5,6 +5,7 @@ This document outlines the roles, responsibilities, and decision-making processe
 ## Maintainer Responsibilities
 
 Maintainers are responsible for:
+
 1. **Code Review & Quality Control**: Reviewing pull requests, verifying type safety (`tsc`), and ensuring performance.
 2. **Issue Triage**: Categorizing, labeling, and prioritizing bug reports and feature requests.
 3. **Security Oversight**: Auditing dependencies, responding to security reports, and ensuring local key encryption.

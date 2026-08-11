@@ -7,9 +7,11 @@ Welcome to **OpenCrafter Studio**! This step-by-step guide walks you through set
 ## 📍 Step 1: Launch OpenCrafter
 
 1. Start OpenCrafter locally:
-   ```bash
-   node backend/dist/index.js
-   ```
+
+```bash
+node backend/dist/index.js
+```
+
 2. Open your web browser to **`http://localhost:3005`**.
 
 ---

@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.3.0] - 2026-08-11
 
-### Added
+### Added in v1.3.0
+
 - **Phase 9: Interactive Story Map & World Cartography Studio**:
   - Interactive cartography canvas with dark parchment grid, compass rose accent, and custom pin positioning.
   - Pin classifications (*Cities, Fortresses, Wilderness, Landmarks, Dungeons, Portals*) linked to Codex entries.
@@ -25,7 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.2.0] - 2026-08-11
 
-### Added
+### Added in v1.2.0
+
 - **Phase 7: Native EPUB 3 & Word DOCX Binary Compiler**:
   - EPUB 3 zip archive generator with metadata, OPF manifest, NCX table of contents, and typography themes (*Classic Garamond, Modern Sans, Vintage Typewriter*).
   - OpenXML DOCX generator supporting Shunn Literary Submission format.
@@ -38,7 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.1.0] - 2026-08-11
 
-### Added
+### Added in v1.1.0
+
 - **Phase 5: Character Arc & Plot Beat Matrix**:
   - 2D grid matrix mapping characters and subplots across chapters.
   - Pacing wave curves and POV screen-time bar charts.
@@ -50,7 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0] - 2026-08-10
 
-### Added
+### Added in v1.0.0
+
 - Initial Release of **OpenCrafter Studio**:
   - SSE real-time AI co-writer text streaming engine.
   - Codex lore network graph with `@` mention parser.
