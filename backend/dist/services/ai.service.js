@@ -42,13 +42,15 @@ class AIService {
             if (!rawUrl) {
                 throw new Error('Ollama Cloud URL is missing. Please enter your remote Ollama endpoint URL in Settings.');
             }
-            endpoint = `${rawUrl.replace(/\/$/, '')}/api/chat`;
+            const cleanBase = rawUrl.trim().replace(/\/api\/?$/, '').replace(/\/+$/, '');
+            endpoint = `${cleanBase}/api/chat`;
         }
         else {
             // Default: Ollama
             model = await this.getSetting('ollama_model') || 'llama3';
             const rawUrl = await this.getSetting('ollama_url') || 'http://localhost:11434';
-            endpoint = `${rawUrl.replace(/\/$/, '')}/api/chat`;
+            const cleanBase = rawUrl.trim().replace(/\/api\/?$/, '').replace(/\/+$/, '');
+            endpoint = `${cleanBase}/api/chat`;
         }
         // Validate key unless Ollama or Ollama Cloud without key
         if (!['ollama', 'ollama_cloud'].includes(activeProvider) && !apiKey) {

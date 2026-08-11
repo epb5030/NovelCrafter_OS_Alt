@@ -6,6 +6,7 @@ import { WriteEditor } from './components/WriteEditor';
 import { OutlinePlanner } from './components/OutlinePlanner';
 import { CodexManager } from './components/CodexManager';
 import { PlotMatrix } from './components/PlotMatrix';
+import { TimelineStudio } from './components/TimelineStudio';
 import { Settings } from './components/Settings';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { ExportModal } from './components/ExportModal';
@@ -134,6 +135,14 @@ function App() {
       case 'matrix':
         return (
           <PlotMatrix 
+            projectId={activeProjectId} 
+            apiBase={API_BASE} 
+            onNavigateToScene={() => setActiveTab('write')}
+          />
+        );
+      case 'timeline':
+        return (
+          <TimelineStudio 
             projectId={activeProjectId} 
             apiBase={API_BASE} 
             onNavigateToScene={() => setActiveTab('write')}

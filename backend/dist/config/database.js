@@ -127,6 +127,26 @@ async function initializeSchema(db) {
       FOREIGN KEY(character_id) REFERENCES codex_entries(id) ON DELETE CASCADE
     )
   `);
+    // Story Timeline & Chronology Events Table
+    await db.exec(`
+    CREATE TABLE IF NOT EXISTS timeline_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      track TEXT NOT NULL, -- 'main_story', 'character_backstory', 'world_history', 'subplot'
+      title TEXT NOT NULL,
+      date_label TEXT NOT NULL,
+      order_index REAL NOT NULL,
+      description TEXT,
+      importance TEXT DEFAULT 'normal', -- 'major', 'turning_point', 'normal', 'minor'
+      scene_id INTEGER,
+      character_id INTEGER,
+      color TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY(scene_id) REFERENCES outline_elements(id) ON DELETE SET NULL,
+      FOREIGN KEY(character_id) REFERENCES codex_entries(id) ON DELETE SET NULL
+    )
+  `);
     // Settings table for storing local configs & credentials securely (API keys)
     await db.exec(`
     CREATE TABLE IF NOT EXISTS settings (

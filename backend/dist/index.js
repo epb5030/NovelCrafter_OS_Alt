@@ -1570,6 +1570,173 @@ app.post('/api/projects/:projectId/matrix/auto-populate', async (req, res) => {
     }
 });
 // ==========================================
+// 10. MULTI-TRACK STORY TIMELINE & CHRONOLOGY API
+// ==========================================
+// Get all timeline events for a project with linked scenes and characters
+app.get('/api/projects/:projectId/timeline', async (req, res) => {
+    const { projectId } = req.params;
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const events = await db.all(`
+      SELECT t.*, 
+             o.title as scene_title,
+             c.name as character_name
+      FROM timeline_events t
+      LEFT JOIN outline_elements o ON t.scene_id = o.id
+      LEFT JOIN codex_entries c ON t.character_id = c.id
+      WHERE t.project_id = ?
+      ORDER BY t.order_index ASC, t.id ASC
+    `, projectId);
+        const scenes = await db.all(`
+      SELECT id, title, position FROM outline_elements 
+      WHERE project_id = ? AND type = 'scene' 
+      ORDER BY position ASC, id ASC
+    `, projectId);
+        const characters = await db.all(`
+      SELECT id, name FROM codex_entries 
+      WHERE project_id = ? AND category = 'character' 
+      ORDER BY name ASC
+    `, projectId);
+        res.json({
+            events,
+            scenes,
+            characters
+        });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Create timeline event
+app.post('/api/projects/:projectId/timeline', async (req, res) => {
+    const { projectId } = req.params;
+    const { track, title, dateLabel, orderIndex, description, importance, sceneId, characterId, color } = req.body;
+    if (!title || !track) {
+        return res.status(400).json({ error: 'Title and track are required' });
+    }
+    try {
+        const db = await (0, database_1.getDatabase)();
+        // Auto calculate order_index if not provided
+        let finalOrderIndex = orderIndex;
+        if (finalOrderIndex === undefined || finalOrderIndex === null) {
+            const maxOrder = await db.get('SELECT MAX(order_index) as max_idx FROM timeline_events WHERE project_id = ?', projectId);
+            finalOrderIndex = (maxOrder?.max_idx || 0) + 10;
+        }
+        const result = await db.run(`
+      INSERT INTO timeline_events (project_id, track, title, date_label, order_index, description, importance, scene_id, character_id, color)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, projectId, track, title, dateLabel || '', finalOrderIndex, description || '', importance || 'normal', sceneId || null, characterId || null, color || null);
+        const created = await db.get(`
+      SELECT t.*, o.title as scene_title, c.name as character_name
+      FROM timeline_events t
+      LEFT JOIN outline_elements o ON t.scene_id = o.id
+      LEFT JOIN codex_entries c ON t.character_id = c.id
+      WHERE t.id = ?
+    `, result.lastID);
+        res.status(201).json(created);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Update timeline event
+app.put('/api/projects/:projectId/timeline/:id', async (req, res) => {
+    const { id } = req.params;
+    const { track, title, dateLabel, orderIndex, description, importance, sceneId, characterId, color } = req.body;
+    try {
+        const db = await (0, database_1.getDatabase)();
+        await db.run(`
+      UPDATE timeline_events
+      SET track = COALESCE(?, track),
+          title = COALESCE(?, title),
+          date_label = COALESCE(?, date_label),
+          order_index = COALESCE(?, order_index),
+          description = COALESCE(?, description),
+          importance = COALESCE(?, importance),
+          scene_id = ?,
+          character_id = ?,
+          color = ?
+      WHERE id = ?
+    `, track, title, dateLabel, orderIndex, description, importance, sceneId || null, characterId || null, color || null, id);
+        const updated = await db.get(`
+      SELECT t.*, o.title as scene_title, c.name as character_name
+      FROM timeline_events t
+      LEFT JOIN outline_elements o ON t.scene_id = o.id
+      LEFT JOIN codex_entries c ON t.character_id = c.id
+      WHERE t.id = ?
+    `, id);
+        res.json(updated);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Delete timeline event
+app.delete('/api/projects/:projectId/timeline/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const db = await (0, database_1.getDatabase)();
+        await db.run('DELETE FROM timeline_events WHERE id = ?', id);
+        res.json({ message: 'Timeline event deleted successfully' });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Auto-generate timeline from outline scenes and codex lore
+app.post('/api/projects/:projectId/timeline/auto-generate', async (req, res) => {
+    const { projectId } = req.params;
+    try {
+        const db = await (0, database_1.getDatabase)();
+        // 1. Fetch scenes
+        const scenes = await db.all(`
+      SELECT id, title, summary, position FROM outline_elements
+      WHERE project_id = ? AND type = 'scene'
+      ORDER BY position ASC, id ASC
+    `, projectId);
+        // 2. Fetch event/lore codex entries
+        const loreEntries = await db.all(`
+      SELECT id, name, description, category FROM codex_entries
+      WHERE project_id = ? AND (category = 'event' OR category = 'lore')
+    `, projectId);
+        let createdCount = 0;
+        let currentOrder = 100;
+        // Create World Lore events first
+        for (const lore of loreEntries) {
+            const exists = await db.get('SELECT id FROM timeline_events WHERE project_id = ? AND title = ?', projectId, lore.name);
+            if (!exists) {
+                await db.run(`
+          INSERT INTO timeline_events (project_id, track, title, date_label, order_index, description, importance, color)
+          VALUES (?, 'world_history', ?, 'Ancient Era', ?, ?, 'major', '#8b5cf6')
+        `, projectId, lore.name, currentOrder, lore.description || 'Historical lore event recorded in Codex.');
+                createdCount++;
+                currentOrder += 50;
+            }
+        }
+        // Create Main Story track events from scenes
+        let sceneDay = 1;
+        for (let i = 0; i < scenes.length; i++) {
+            const scene = scenes[i];
+            const exists = await db.get('SELECT id FROM timeline_events WHERE project_id = ? AND scene_id = ?', projectId, scene.id);
+            if (!exists) {
+                const dateLabel = `Day ${sceneDay}, Scene ${i + 1}`;
+                await db.run(`
+          INSERT INTO timeline_events (project_id, track, title, date_label, order_index, description, importance, scene_id, color)
+          VALUES (?, 'main_story', ?, ?, ?, ?, 'normal', ?, '#c89d54')
+        `, projectId, scene.title, dateLabel, currentOrder, scene.summary || `Manuscript draft for ${scene.title}`, scene.id);
+                createdCount++;
+                currentOrder += 20;
+                if ((i + 1) % 3 === 0)
+                    sceneDay++;
+            }
+        }
+        res.json({ message: `Successfully generated ${createdCount} chronological timeline events!`, count: createdCount });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// ==========================================
 // PRODUCTION FRONTEND STATIC SERVING
 // ==========================================
 const frontendBuildPath = path_1.default.join(__dirname, '../../frontend/dist');

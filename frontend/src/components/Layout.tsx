@@ -8,7 +8,8 @@ import {
   Sparkles,
   Search,
   Download,
-  LayoutGrid
+  LayoutGrid,
+  Clock
 } from 'lucide-react';
 import type { AuthorProfile } from './AccountModal';
 
@@ -41,6 +42,7 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'write', label: 'Write', icon: BookOpen },
     { id: 'outline', label: 'Outline', icon: Map },
     { id: 'matrix', label: 'Plot Matrix', icon: LayoutGrid },
+    { id: 'timeline', label: 'Timeline', icon: Clock },
     { id: 'codex', label: 'Codex', icon: Database },
     { id: 'settings', label: 'Settings', icon: SettingsIcon },
   ];
