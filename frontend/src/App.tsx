@@ -8,6 +8,8 @@ import { CodexManager } from './components/CodexManager';
 import { Settings } from './components/Settings';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { ExportModal } from './components/ExportModal';
+import { AccountModal } from './components/AccountModal';
+import type { AuthorProfile } from './components/AccountModal';
 
 const API_BASE = import.meta.env.DEV ? 'http://localhost:3005/api' : '/api';
 
@@ -21,6 +23,8 @@ function App() {
   const [activeTheme, setActiveTheme] = useState<ThemeType>('vintage-typewriter');
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
   const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState<boolean>(false);
+  const [authorProfile, setAuthorProfile] = useState<AuthorProfile | null>(null);
 
   // Load saved theme from localStorage or settings
   useEffect(() => {
@@ -35,7 +39,7 @@ function App() {
     document.documentElement.setAttribute('data-theme', newTheme);
   };
 
-  // Fetch active provider on load & settings changes
+  // Fetch active provider & author profile on load
   const fetchActiveProvider = async () => {
     try {
       const res = await fetch(`${API_BASE}/settings`);
@@ -48,8 +52,21 @@ function App() {
     }
   };
 
+  const fetchActiveProfile = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/account/profile`);
+      if (res.ok) {
+        const profile = await res.json();
+        setAuthorProfile(profile);
+      }
+    } catch (err) {
+      console.error('Error fetching author profile:', err);
+    }
+  };
+
   useEffect(() => {
     fetchActiveProvider();
+    fetchActiveProfile();
   }, []);
 
   // Global Ctrl+K / Cmd+K search shortcut listener
@@ -140,10 +157,22 @@ function App() {
 
   if (activeProjectId === null || !activeProject) {
     return (
-      <ProjectDashboard 
-        onSelectProject={setActiveProjectId} 
-        apiBase={API_BASE} 
-      />
+      <>
+        <ProjectDashboard 
+          onSelectProject={setActiveProjectId} 
+          apiBase={API_BASE}
+          authorProfile={authorProfile}
+          onOpenAccount={() => setIsAccountModalOpen(true)}
+        />
+        <AccountModal
+          apiBase={API_BASE}
+          isOpen={isAccountModalOpen}
+          onClose={() => setIsAccountModalOpen(false)}
+          activeTheme={activeTheme}
+          onThemeChange={handleThemeChange}
+          onProfileUpdated={(updated) => setAuthorProfile(updated)}
+        />
+      </>
     );
   }
 
@@ -155,6 +184,8 @@ function App() {
         projectName={activeProject.title}
         onBackToDashboard={handleBackToDashboard}
         activeProvider={activeProvider}
+        authorProfile={authorProfile}
+        onOpenAccount={() => setIsAccountModalOpen(true)}
         onOpenSearch={() => setIsSearchOpen(true)}
         onOpenExport={() => setIsExportOpen(true)}
       >
@@ -188,6 +219,16 @@ function App() {
         apiBase={API_BASE}
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
+      />
+
+      {/* Author Account & Global Preferences Modal */}
+      <AccountModal
+        apiBase={API_BASE}
+        isOpen={isAccountModalOpen}
+        onClose={() => setIsAccountModalOpen(false)}
+        activeTheme={activeTheme}
+        onThemeChange={handleThemeChange}
+        onProfileUpdated={(updated) => setAuthorProfile(updated)}
       />
     </>
   );

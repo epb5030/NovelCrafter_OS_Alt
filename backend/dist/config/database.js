@@ -116,6 +116,27 @@ async function initializeSchema(db) {
       value TEXT NOT NULL
     )
   `);
+    // Author Profiles Table for Multi-Account / Pen Names and Global Author Profile
+    await db.exec(`
+    CREATE TABLE IF NOT EXISTS author_profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      pen_name TEXT NOT NULL,
+      email TEXT,
+      avatar_color TEXT DEFAULT '#c89d54',
+      bio TEXT,
+      is_active INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+    // Seed default author profile if none exist
+    const existingAuthor = await db.get('SELECT id FROM author_profiles LIMIT 1');
+    if (!existingAuthor) {
+        await db.run(`
+      INSERT INTO author_profiles (username, pen_name, email, avatar_color, bio, is_active)
+      VALUES (?, ?, ?, ?, ?, 1)
+    `, 'buchhalt', 'E. P. Buchhalt', 'author@opencrafter.local', '#c89d54', 'Architect of worlds and weaver of speculative fiction.');
+    }
     // Populate default settings (using INSERT OR IGNORE to ensure new keys exist in pre-existing databases)
     const defaultSettings = [
         { key: 'openai_api_key', value: '' },

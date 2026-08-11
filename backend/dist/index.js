@@ -1081,6 +1081,138 @@ app.post('/api/ai/generate-stream', async (req, res) => {
     }
 });
 // ==========================================
+// 7. ACCOUNT PROFILE & GLOBAL PREFERENCES API
+// ==========================================
+// Get active author profile
+app.get('/api/account/profile', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        let profile = await db.get('SELECT * FROM author_profiles WHERE is_active = 1 LIMIT 1');
+        if (!profile) {
+            profile = await db.get('SELECT * FROM author_profiles ORDER BY id ASC LIMIT 1');
+            if (profile) {
+                await db.run('UPDATE author_profiles SET is_active = 1 WHERE id = ?', profile.id);
+            }
+        }
+        if (!profile) {
+            // Create fallback default
+            const result = await db.run(`
+        INSERT INTO author_profiles (username, pen_name, email, avatar_color, bio, is_active)
+        VALUES (?, ?, ?, ?, ?, 1)
+      `, 'author', 'Author', 'author@opencrafter.local', '#c89d54', 'Novelist & Story Architect');
+            profile = await db.get('SELECT * FROM author_profiles WHERE id = ?', result.lastID);
+        }
+        res.json(profile);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Update active author profile
+app.put('/api/account/profile', async (req, res) => {
+    const { pen_name, email, avatar_color, bio, username } = req.body;
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const active = await db.get('SELECT id FROM author_profiles WHERE is_active = 1 LIMIT 1');
+        if (!active) {
+            return res.status(404).json({ error: 'No active author profile found' });
+        }
+        await db.run(`
+      UPDATE author_profiles 
+      SET pen_name = COALESCE(?, pen_name),
+          email = COALESCE(?, email),
+          avatar_color = COALESCE(?, avatar_color),
+          bio = COALESCE(?, bio),
+          username = COALESCE(?, username)
+      WHERE id = ?
+    `, pen_name, email, avatar_color, bio, username, active.id);
+        const updated = await db.get('SELECT * FROM author_profiles WHERE id = ?', active.id);
+        res.json(updated);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Get all author profiles (for account switching)
+app.get('/api/account/profiles', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const profiles = await db.all('SELECT * FROM author_profiles ORDER BY created_at ASC');
+        res.json(profiles);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Register / Create new author pen-name account
+app.post('/api/account/register', async (req, res) => {
+    const { username, pen_name, email, avatar_color, bio } = req.body;
+    if (!username || !pen_name) {
+        return res.status(400).json({ error: 'Username and Pen Name are required' });
+    }
+    try {
+        const db = await (0, database_1.getDatabase)();
+        // Check if username already exists
+        const existing = await db.get('SELECT id FROM author_profiles WHERE username = ?', username);
+        if (existing) {
+            return res.status(400).json({ error: 'Username is already in use. Please choose another or sign in.' });
+        }
+        // Set all others to inactive
+        await db.run('UPDATE author_profiles SET is_active = 0');
+        const result = await db.run(`
+      INSERT INTO author_profiles (username, pen_name, email, avatar_color, bio, is_active)
+      VALUES (?, ?, ?, ?, ?, 1)
+    `, username, pen_name, email || '', avatar_color || '#c89d54', bio || '');
+        const newProfile = await db.get('SELECT * FROM author_profiles WHERE id = ?', result.lastID);
+        res.status(201).json(newProfile);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Sign in / Switch active account
+app.post('/api/account/login', async (req, res) => {
+    const { username } = req.body;
+    if (!username) {
+        return res.status(400).json({ error: 'Username is required' });
+    }
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const profile = await db.get('SELECT * FROM author_profiles WHERE username = ? OR pen_name = ?', username, username);
+        if (!profile) {
+            return res.status(404).json({ error: `Account "${username}" not found. You can create a new profile.` });
+        }
+        await db.run('UPDATE author_profiles SET is_active = 0');
+        await db.run('UPDATE author_profiles SET is_active = 1 WHERE id = ?', profile.id);
+        const activeProfile = await db.get('SELECT * FROM author_profiles WHERE id = ?', profile.id);
+        res.json(activeProfile);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Switch active account by ID
+app.post('/api/account/switch', async (req, res) => {
+    const { id } = req.body;
+    if (!id) {
+        return res.status(400).json({ error: 'Account ID is required' });
+    }
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const profile = await db.get('SELECT * FROM author_profiles WHERE id = ?', id);
+        if (!profile) {
+            return res.status(404).json({ error: 'Author account not found' });
+        }
+        await db.run('UPDATE author_profiles SET is_active = 0');
+        await db.run('UPDATE author_profiles SET is_active = 1 WHERE id = ?', id);
+        const activeProfile = await db.get('SELECT * FROM author_profiles WHERE id = ?', id);
+        res.json(activeProfile);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// ==========================================
 // PRODUCTION FRONTEND STATIC SERVING
 // ==========================================
 const frontendBuildPath = path_1.default.join(__dirname, '../../frontend/dist');

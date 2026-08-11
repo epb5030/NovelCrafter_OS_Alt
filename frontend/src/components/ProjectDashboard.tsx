@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, FolderOpen, Trash2, Download, Upload, Book } from 'lucide-react';
+import { Plus, FolderOpen, Trash2, Download, Upload, Book, Settings as SettingsIcon } from 'lucide-react';
+import type { AuthorProfile } from './AccountModal';
 
 export interface Project {
   id: number;
@@ -13,9 +14,16 @@ export interface Project {
 interface ProjectDashboardProps {
   onSelectProject: (projectId: number) => void;
   apiBase: string;
+  authorProfile?: AuthorProfile | null;
+  onOpenAccount?: () => void;
 }
 
-export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({ onSelectProject, apiBase }) => {
+export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({ 
+  onSelectProject, 
+  apiBase,
+  authorProfile,
+  onOpenAccount 
+}) => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [title, setTitle] = useState('');
@@ -173,7 +181,46 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({ onSelectProj
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          {/* Author Profile / Account Trigger */}
+          {onOpenAccount && (
+            <button
+              type="button"
+              onClick={onOpenAccount}
+              className="btn btn-secondary"
+              style={{
+                padding: '8px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                border: '1px solid var(--border-light)',
+                background: 'rgba(0,0,0,0.25)'
+              }}
+              title="Manage Author Account, Pen Names & Global Studio Preferences"
+            >
+              <div 
+                style={{ 
+                  width: '22px', 
+                  height: '22px', 
+                  borderRadius: '50%', 
+                  backgroundColor: authorProfile?.avatar_color || 'var(--primary)',
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  color: '#ffffff', 
+                  fontWeight: 800,
+                  fontSize: '10px'
+                }}
+              >
+                {authorProfile?.pen_name ? authorProfile.pen_name[0].toUpperCase() : 'A'}
+              </div>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: '#ffffff' }}>
+                {authorProfile?.pen_name || 'Author Account'}
+              </span>
+              <SettingsIcon size={13} style={{ color: 'var(--text-muted)' }} />
+            </button>
+          )}
+
           {/* Import Button */}
           <label 
             className="btn btn-secondary" 
