@@ -10,7 +10,8 @@ import {
   BookOpen, 
   Feather, 
   Flame, 
-  Monitor 
+  Monitor,
+  Cloud 
 } from 'lucide-react';
 import type { ThemeType } from '../App';
 
@@ -211,7 +212,8 @@ export const Settings: React.FC<SettingsProps> = ({
           
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
             {[
-              { id: 'ollama', label: 'Ollama (Local)', desc: 'Run offline first' },
+              { id: 'ollama', label: 'Ollama (Local)', desc: 'Local localhost:11434' },
+              { id: 'ollama_cloud', label: 'Ollama Cloud', desc: 'Remote GPU / RunPod / Tunnel' },
               { id: 'gemini', label: 'Google Gemini', desc: '1M+ Context / Gemini 2.0' },
               { id: 'openai', label: 'OpenAI', desc: 'GPT-4o / GPT-4o-mini' },
               { id: 'anthropic', label: 'Anthropic', desc: 'Claude 3.5 Sonnet' },
@@ -242,6 +244,71 @@ export const Settings: React.FC<SettingsProps> = ({
             ))}
           </div>
         </div>
+
+        {/* 1A. Ollama Cloud / Remote Host Settings */}
+        {activeProvider === 'ollama_cloud' && (
+          <div className="glass-panel" style={{ padding: '20px', border: '1px solid var(--border-light)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+              <Cloud size={18} style={{ color: 'var(--primary)' }} />
+              <div>
+                <h3 style={{ color: '#ffffff', fontSize: '16px' }}>Ollama Cloud / Remote GPU Host Settings</h3>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Connect to high-memory remote GPUs (RunPod, Vast.ai, Modal, Cloudflare tunnel, or private VPS) running 70B+ models.
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label className="label">Ollama Cloud / Remote Server URL</label>
+                <input 
+                  type="url" 
+                  value={settings.ollama_cloud_url || ''} 
+                  onChange={(e) => updateSetting('ollama_cloud_url', e.target.value)} 
+                  className="input" 
+                  placeholder="https://my-ollama-gpu.runpod.net or https://ollama.yourdomain.com" 
+                  required 
+                />
+              </div>
+
+              <div>
+                <label className="label">Remote Auth Token / Bearer Key (Optional)</label>
+                <input 
+                  type="password" 
+                  value={settings.ollama_cloud_api_key || ''} 
+                  onChange={(e) => updateSetting('ollama_cloud_api_key', e.target.value)} 
+                  className="input" 
+                  placeholder="Bearer token or password (leave blank if public tunnel)" 
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="label">Remote Model Tag</label>
+                  <input 
+                    type="text" 
+                    value={settings.ollama_cloud_model || ''} 
+                    onChange={(e) => updateSetting('ollama_cloud_model', e.target.value)} 
+                    className="input" 
+                    placeholder="e.g. llama3.3:70b, deepseek-r1:70b, qwen2.5:72b" 
+                    required 
+                  />
+                </div>
+
+                <div>
+                  <label className="label">GPU Context Window (num_ctx)</label>
+                  <input 
+                    type="number" 
+                    value={settings.ollama_cloud_num_ctx || '32768'} 
+                    onChange={(e) => updateSetting('ollama_cloud_num_ctx', e.target.value)} 
+                    className="input" 
+                    placeholder="e.g. 16384, 32768, 65536" 
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 1B. Google Gemini Configs */}
         {activeProvider === 'gemini' && (

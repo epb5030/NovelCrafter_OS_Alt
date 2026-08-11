@@ -138,6 +138,10 @@ async function initializeSchema(db: Database) {
     { key: 'gemini_model', value: 'gemini-2.0-flash' },
     { key: 'ollama_url', value: 'http://localhost:11434' },
     { key: 'ollama_model', value: 'llama3' },
+    { key: 'ollama_cloud_url', value: '' },
+    { key: 'ollama_cloud_api_key', value: '' },
+    { key: 'ollama_cloud_model', value: 'llama3.3:70b' },
+    { key: 'ollama_cloud_num_ctx', value: '32768' },
     { key: 'active_provider', value: 'ollama' },
     // Style & Prompt Studio Defaults
     { key: 'writing_pov', value: 'third_limited' }, // 'first_person', 'third_limited', 'third_omniscient', 'second_person'

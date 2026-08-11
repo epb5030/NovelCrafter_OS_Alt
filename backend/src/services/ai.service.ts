@@ -63,6 +63,14 @@ export class AIService {
       apiKey = await this.getSetting('gemini_api_key');
       model = await this.getSetting('gemini_model') || 'gemini-2.0-flash';
       endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`;
+    } else if (activeProvider === 'ollama_cloud') {
+      apiKey = await this.getSetting('ollama_cloud_api_key');
+      model = await this.getSetting('ollama_cloud_model') || 'llama3.3:70b';
+      const rawUrl = await this.getSetting('ollama_cloud_url');
+      if (!rawUrl) {
+        throw new Error('Ollama Cloud URL is missing. Please enter your remote Ollama endpoint URL in Settings.');
+      }
+      endpoint = `${rawUrl.replace(/\/$/, '')}/api/chat`;
     } else {
       // Default: Ollama
       model = await this.getSetting('ollama_model') || 'llama3';
@@ -70,8 +78,8 @@ export class AIService {
       endpoint = `${rawUrl.replace(/\/$/, '')}/api/chat`;
     }
 
-    // Validate key unless Ollama
-    if (activeProvider !== 'ollama' && !apiKey) {
+    // Validate key unless Ollama or Ollama Cloud without key
+    if (!['ollama', 'ollama_cloud'].includes(activeProvider) && !apiKey) {
       throw new Error(`API key is missing for provider: ${activeProvider}. Please add your key in Settings.`);
     }
 
@@ -363,8 +371,24 @@ Please structure your diagnostic critique with:
           temperature: 0.7
         }
       };
+    } else if (provider === 'ollama_cloud') {
+      if (apiKey) {
+        headers['Authorization'] = apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`;
+      }
+      const numCtxSetting = await this.getSetting('ollama_cloud_num_ctx');
+      const numCtx = numCtxSetting ? parseInt(numCtxSetting, 10) : 32768;
+
+      body = {
+        model,
+        messages: messages.map(m => ({ role: m.role, content: m.content })),
+        stream: true,
+        options: {
+          temperature: 0.7,
+          num_ctx: numCtx
+        }
+      };
     } else {
-      // Ollama
+      // Local Ollama
       body = {
         model,
         messages: messages.map(m => ({ role: m.role, content: m.content })),
@@ -416,8 +440,8 @@ Please structure your diagnostic critique with:
           const trimmed = line.trim();
           if (!trimmed) continue;
 
-          // 1. Ollama format: newline-delimited JSON objects
-          if (provider === 'ollama') {
+          // 1. Ollama (Local & Cloud) format: newline-delimited JSON objects
+          if (provider === 'ollama' || provider === 'ollama_cloud') {
             try {
               const parsed = JSON.parse(trimmed);
               if (parsed.message?.content) {
@@ -477,7 +501,7 @@ Please structure your diagnostic critique with:
       }
 
       // Process any remaining bytes in buffer
-      if (buffer.trim() && provider === 'ollama') {
+      if (buffer.trim() && (provider === 'ollama' || provider === 'ollama_cloud')) {
         try {
           const parsed = JSON.parse(buffer.trim());
           if (parsed.message?.content) {
