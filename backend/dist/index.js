@@ -1213,6 +1213,246 @@ app.post('/api/account/switch', async (req, res) => {
     }
 });
 // ==========================================
+// 8. OAUTH SOCIAL AUTHENTICATION (Google & GitHub)
+// ==========================================
+// Check OAuth status & configuration
+app.get('/api/auth/oauth-status', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const gId = await db.get("SELECT value FROM settings WHERE key = 'google_client_id'");
+        const ghId = await db.get("SELECT value FROM settings WHERE key = 'github_client_id'");
+        const host = req.get('host') || 'localhost:3005';
+        const protocol = req.protocol || 'http';
+        res.json({
+            google: {
+                configured: !!(gId && gId.value.trim()),
+                callbackUrl: `${protocol}://${host}/api/auth/google/callback`
+            },
+            github: {
+                configured: !!(ghId && ghId.value.trim()),
+                callbackUrl: `${protocol}://${host}/api/auth/github/callback`
+            }
+        });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Google OAuth URL generator
+app.get('/api/auth/google/url', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const gId = await db.get("SELECT value FROM settings WHERE key = 'google_client_id'");
+        if (!gId || !gId.value.trim()) {
+            return res.status(400).json({
+                error: 'Google OAuth Client ID is not configured. Please add your Google Client ID & Secret in Settings.'
+            });
+        }
+        const host = req.get('host') || 'localhost:3005';
+        const protocol = req.protocol || 'http';
+        const redirectUri = encodeURIComponent(`${protocol}://${host}/api/auth/google/callback`);
+        const clientId = encodeURIComponent(gId.value.trim());
+        const scope = encodeURIComponent('openid email profile');
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
+        res.json({ url: authUrl });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Google OAuth Callback Handler
+app.get('/api/auth/google/callback', async (req, res) => {
+    const { code } = req.query;
+    if (!code) {
+        return res.redirect('/?oauth_error=No_code_provided');
+    }
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const gId = await db.get("SELECT value FROM settings WHERE key = 'google_client_id'");
+        const gSec = await db.get("SELECT value FROM settings WHERE key = 'google_client_secret'");
+        const host = req.get('host') || 'localhost:3005';
+        const protocol = req.protocol || 'http';
+        const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
+        // 1. Exchange authorization code for access token
+        const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                code: code,
+                client_id: gId?.value || '',
+                client_secret: gSec?.value || '',
+                redirect_uri: redirectUri,
+                grant_type: 'authorization_code'
+            })
+        });
+        if (!tokenRes.ok) {
+            const err = await tokenRes.text();
+            return res.redirect(`/?oauth_error=${encodeURIComponent(err)}`);
+        }
+        const tokenData = await tokenRes.json();
+        const accessToken = tokenData.access_token;
+        // 2. Fetch User Profile from Google
+        const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+            headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (!userRes.ok) {
+            return res.redirect('/?oauth_error=Failed_to_fetch_google_user');
+        }
+        const googleUser = await userRes.json();
+        const googleId = googleUser.id;
+        const email = googleUser.email || '';
+        const name = googleUser.name || email.split('@')[0] || 'Google Author';
+        const picture = googleUser.picture || '';
+        // 3. Find or Create Author Profile
+        let profile = await db.get('SELECT * FROM author_profiles WHERE oauth_provider = "google" AND oauth_id = ?', googleId);
+        if (!profile && email) {
+            profile = await db.get('SELECT * FROM author_profiles WHERE email = ?', email);
+        }
+        if (!profile) {
+            const username = `google_${email ? email.split('@')[0] : googleId.slice(0, 8)}`;
+            const result = await db.run(`
+        INSERT INTO author_profiles (username, pen_name, email, avatar_color, avatar_url, bio, oauth_provider, oauth_id, is_active)
+        VALUES (?, ?, ?, '#2563eb', ?, 'Authenticated via Google Account', 'google', ?, 1)
+      `, username, name, email, picture, googleId);
+            profile = await db.get('SELECT * FROM author_profiles WHERE id = ?', result.lastID);
+        }
+        else {
+            await db.run(`
+        UPDATE author_profiles 
+        SET oauth_provider = 'google', oauth_id = ?, avatar_url = COALESCE(?, avatar_url)
+        WHERE id = ?
+      `, googleId, picture, profile.id);
+        }
+        // Set as active profile
+        await db.run('UPDATE author_profiles SET is_active = 0');
+        await db.run('UPDATE author_profiles SET is_active = 1 WHERE id = ?', profile.id);
+        res.redirect('/?auth_success=google');
+    }
+    catch (error) {
+        res.redirect(`/?oauth_error=${encodeURIComponent(error.message)}`);
+    }
+});
+// GitHub OAuth URL generator
+app.get('/api/auth/github/url', async (req, res) => {
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const ghId = await db.get("SELECT value FROM settings WHERE key = 'github_client_id'");
+        if (!ghId || !ghId.value.trim()) {
+            return res.status(400).json({
+                error: 'GitHub OAuth Client ID is not configured. Please add your GitHub Client ID & Secret in Settings.'
+            });
+        }
+        const host = req.get('host') || 'localhost:3005';
+        const protocol = req.protocol || 'http';
+        const redirectUri = encodeURIComponent(`${protocol}://${host}/api/auth/github/callback`);
+        const clientId = encodeURIComponent(ghId.value.trim());
+        const authUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=user:email`;
+        res.json({ url: authUrl });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// GitHub OAuth Callback Handler
+app.get('/api/auth/github/callback', async (req, res) => {
+    const { code } = req.query;
+    if (!code) {
+        return res.redirect('/?oauth_error=No_code_provided');
+    }
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const ghId = await db.get("SELECT value FROM settings WHERE key = 'github_client_id'");
+        const ghSec = await db.get("SELECT value FROM settings WHERE key = 'github_client_secret'");
+        // 1. Exchange code for access token
+        const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                client_id: ghId?.value || '',
+                client_secret: ghSec?.value || '',
+                code: code
+            })
+        });
+        const tokenData = await tokenRes.json();
+        const accessToken = tokenData.access_token;
+        if (!accessToken) {
+            return res.redirect(`/?oauth_error=${encodeURIComponent(tokenData.error_description || 'Failed to exchange GitHub token')}`);
+        }
+        // 2. Fetch User Profile from GitHub
+        const userRes = await fetch('https://api.github.com/user', {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'User-Agent': 'OpenCrafter'
+            }
+        });
+        if (!userRes.ok) {
+            return res.redirect('/?oauth_error=Failed_to_fetch_github_user');
+        }
+        const ghUser = await userRes.json();
+        const githubId = String(ghUser.id);
+        const username = ghUser.login || `gh_${githubId}`;
+        const penName = ghUser.name || ghUser.login || 'GitHub Author';
+        const email = ghUser.email || '';
+        const avatarUrl = ghUser.avatar_url || '';
+        // 3. Find or Create Author Profile
+        let profile = await db.get('SELECT * FROM author_profiles WHERE oauth_provider = "github" AND oauth_id = ?', githubId);
+        if (!profile && email) {
+            profile = await db.get('SELECT * FROM author_profiles WHERE email = ?', email);
+        }
+        if (!profile) {
+            const result = await db.run(`
+        INSERT INTO author_profiles (username, pen_name, email, avatar_color, avatar_url, bio, oauth_provider, oauth_id, is_active)
+        VALUES (?, ?, ?, '#1e293b', ?, 'Authenticated via GitHub Account', 'github', ?, 1)
+      `, username, penName, email, avatarUrl, githubId);
+            profile = await db.get('SELECT * FROM author_profiles WHERE id = ?', result.lastID);
+        }
+        else {
+            await db.run(`
+        UPDATE author_profiles 
+        SET oauth_provider = 'github', oauth_id = ?, avatar_url = COALESCE(?, avatar_url)
+        WHERE id = ?
+      `, githubId, avatarUrl, profile.id);
+        }
+        // Set as active profile
+        await db.run('UPDATE author_profiles SET is_active = 0');
+        await db.run('UPDATE author_profiles SET is_active = 1 WHERE id = ?', profile.id);
+        res.redirect('/?auth_success=github');
+    }
+    catch (error) {
+        res.redirect(`/?oauth_error=${encodeURIComponent(error.message)}`);
+    }
+});
+// Direct Social Connect / Mock Link for Local Mode
+app.post('/api/auth/social-connect', async (req, res) => {
+    const { provider, name, email, avatar_url } = req.body;
+    if (!provider || !name) {
+        return res.status(400).json({ error: 'Provider and name are required' });
+    }
+    try {
+        const db = await (0, database_1.getDatabase)();
+        const username = `${provider}_${(email || name).replace(/[^a-zA-Z0-9]/g, '_').toLowerCase().slice(0, 15)}`;
+        let profile = await db.get('SELECT * FROM author_profiles WHERE username = ? OR (email = ? AND email != "")', username, email);
+        if (!profile) {
+            const color = provider === 'google' ? '#2563eb' : '#1e293b';
+            const result = await db.run(`
+        INSERT INTO author_profiles (username, pen_name, email, avatar_color, avatar_url, bio, oauth_provider, oauth_id, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+      `, username, name, email || '', color, avatar_url || '', `Authenticated via ${provider.toUpperCase()}`, provider, `${provider}_local_id`);
+            profile = await db.get('SELECT * FROM author_profiles WHERE id = ?', result.lastID);
+        }
+        await db.run('UPDATE author_profiles SET is_active = 0');
+        await db.run('UPDATE author_profiles SET is_active = 1 WHERE id = ?', profile.id);
+        const active = await db.get('SELECT * FROM author_profiles WHERE id = ?', profile.id);
+        res.json(active);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// ==========================================
 // PRODUCTION FRONTEND STATIC SERVING
 // ==========================================
 const frontendBuildPath = path_1.default.join(__dirname, '../../frontend/dist');

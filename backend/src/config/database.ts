@@ -134,18 +134,32 @@ async function initializeSchema(db: Database) {
       pen_name TEXT NOT NULL,
       email TEXT,
       avatar_color TEXT DEFAULT '#c89d54',
+      avatar_url TEXT,
       bio TEXT,
+      oauth_provider TEXT DEFAULT 'local',
+      oauth_id TEXT,
       is_active INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
+  // Ensure columns exist for existing databases
+  try {
+    await db.exec('ALTER TABLE author_profiles ADD COLUMN avatar_url TEXT');
+  } catch (_) {}
+  try {
+    await db.exec("ALTER TABLE author_profiles ADD COLUMN oauth_provider TEXT DEFAULT 'local'");
+  } catch (_) {}
+  try {
+    await db.exec('ALTER TABLE author_profiles ADD COLUMN oauth_id TEXT');
+  } catch (_) {}
+
   // Seed default author profile if none exist
   const existingAuthor = await db.get('SELECT id FROM author_profiles LIMIT 1');
   if (!existingAuthor) {
     await db.run(`
-      INSERT INTO author_profiles (username, pen_name, email, avatar_color, bio, is_active)
-      VALUES (?, ?, ?, ?, ?, 1)
+      INSERT INTO author_profiles (username, pen_name, email, avatar_color, bio, oauth_provider, is_active)
+      VALUES (?, ?, ?, ?, ?, 'local', 1)
     `, 'buchhalt', 'E. P. Buchhalt', 'author@opencrafter.local', '#c89d54', 'Architect of worlds and weaver of speculative fiction.');
   }
 
@@ -166,6 +180,11 @@ async function initializeSchema(db: Database) {
     { key: 'ollama_cloud_model', value: 'llama3.3:70b' },
     { key: 'ollama_cloud_num_ctx', value: '32768' },
     { key: 'active_provider', value: 'ollama' },
+    // Google & GitHub OAuth Credentials
+    { key: 'google_client_id', value: '' },
+    { key: 'google_client_secret', value: '' },
+    { key: 'github_client_id', value: '' },
+    { key: 'github_client_secret', value: '' },
     // Style & Prompt Studio Defaults
     { key: 'writing_pov', value: 'third_limited' }, // 'first_person', 'third_limited', 'third_omniscient', 'second_person'
     { key: 'writing_tense', value: 'past' }, // 'past', 'present'
