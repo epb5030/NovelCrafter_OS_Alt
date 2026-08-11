@@ -1,0 +1,35 @@
+name: OpenCrafter CI Build & Typecheck
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [ 20.x ]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: Install Backend Dependencies
+      run: npm --prefix backend ci
+
+    - name: Install Frontend Dependencies
+      run: npm --prefix frontend ci
+
+    - name: Typecheck & Build Frontend
+      run: npm --prefix frontend run build
+
+    - name: Typecheck & Build Backend
+      run: npm --prefix backend run build
