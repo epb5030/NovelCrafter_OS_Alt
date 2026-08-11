@@ -1,0 +1,19 @@
+# Codeowners definition for automatic review assignments
+
+# Global default owners
+* @epb5030
+
+# Backend Node/Express code & SQLite migrations
+/backend/ @epb5030
+
+# Frontend React, TypeScript, and Styling
+/frontend/ @epb5030
+
+# Documentation & Walkthroughs
+/docs/ @epb5030
+*.md @epb5030
+
+# CI Workflows & Docker
+/.github/ @epb5030
+Dockerfile @epb5030
+docker-compose.yml @epb5030

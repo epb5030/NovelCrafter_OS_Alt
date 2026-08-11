@@ -98,6 +98,18 @@ Access the application at `http://localhost:3005`.
 
 ---
 
+## 📚 Community, Governance & Documentation
+
+- **🚀 First-Time Author Guide**: See [`docs/FIRST-TIME-USER-GUIDE.md`](docs/FIRST-TIME-USER-GUIDE.md).
+- **📖 Technical Architecture**: See [`docs/Architecture.md`](docs/Architecture.md).
+- **🔌 REST API Reference**: See [`docs/API-Reference.md`](docs/API-Reference.md).
+- **📝 Changelog & Version History**: See [`CHANGELOG.md`](CHANGELOG.md).
+- **🤝 Contribution Guidelines**: See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+- **🛡️ Code of Conduct**: See [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+- **👥 Authors & Maintainers**: See [`AUTHORS.md`](AUTHORS.md) and [`MAINTAINERS.md`](MAINTAINERS.md).
+
+---
+
 ## 🏷️ Repository Topics
 
 `ai-writing` • `novel-writing` • `storytelling` • `worldbuilding` • `ollama` • `gemini` • `openai` • `anthropic` • `react` • `typescript` • `epub-compiler` • `docx-compiler` • `cartography` • `character-arcs` • `self-hosted`

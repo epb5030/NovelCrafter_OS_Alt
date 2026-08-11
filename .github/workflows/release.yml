@@ -1,0 +1,47 @@
+name: OpenCrafter Automated Release Build
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    name: Build & Publish Release Artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+
+      - name: Install Frontend & Backend Dependencies
+        run: |
+          npm --prefix backend ci
+          npm --prefix frontend ci
+
+      - name: Build Frontend & Backend Bundles
+        run: |
+          npm --prefix frontend run build
+          npm --prefix backend run build
+
+      - name: Create Release Zip Package
+        run: |
+          zip -r opencrafter-studio-${{ github.ref_name }}.zip \
+            README.md LICENSE SECURITY.md package.json Dockerfile docker-compose.yml \
+            backend/dist backend/package.json backend/package-lock.json \
+            frontend/dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: opencrafter-studio-${{ github.ref_name }}.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
