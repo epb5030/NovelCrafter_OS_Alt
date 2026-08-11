@@ -7,6 +7,7 @@ const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const database_1 = require("./config/database");
 const ai_service_1 = require("./services/ai.service");
+const compiler_service_1 = require("./services/compiler.service");
 const path_1 = __importDefault(require("path"));
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3005;
@@ -322,6 +323,97 @@ app.get('/api/projects/:projectId/export/manuscript', async (req, res) => {
             }
             return res.send(md);
         }
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Helper function to build structured chapter hierarchy for binary compilers
+async function getProjectCompilationData(projectId) {
+    const db = await (0, database_1.getDatabase)();
+    const project = await db.get('SELECT * FROM projects WHERE id = ?', projectId);
+    if (!project)
+        throw new Error('Project not found');
+    let author = await db.get('SELECT * FROM author_profiles WHERE is_active = 1 LIMIT 1');
+    if (!author) {
+        author = { pen_name: 'Author', email: '' };
+    }
+    const outline = await db.all('SELECT * FROM outline_elements WHERE project_id = ? ORDER BY position ASC', projectId);
+    const sceneRows = await db.all(`
+    SELECT o.id, sc.content 
+    FROM outline_elements o
+    LEFT JOIN scene_contents sc ON o.id = sc.scene_id
+    WHERE o.project_id = ? AND o.type = 'scene'
+  `, projectId);
+    const contentMap = {};
+    for (const row of sceneRows) {
+        contentMap[row.id] = row.content || '';
+    }
+    const chapters = outline.filter(el => el.type === 'chapter').sort((a, b) => a.position - b.position);
+    const compiledChapters = [];
+    if (chapters.length > 0) {
+        for (const chap of chapters) {
+            const chapScenes = outline
+                .filter(el => el.type === 'scene' && el.parent_id === chap.id)
+                .sort((a, b) => a.position - b.position)
+                .map(s => ({
+                title: s.title,
+                content: contentMap[s.id] || '',
+                summary: s.summary
+            }));
+            compiledChapters.push({
+                title: chap.title,
+                type: 'chapter',
+                scenes: chapScenes
+            });
+        }
+    }
+    else {
+        // If no chapter folders, package root scenes
+        const rootScenes = outline
+            .filter(el => el.type === 'scene')
+            .sort((a, b) => a.position - b.position)
+            .map(s => ({
+            title: s.title,
+            content: contentMap[s.id] || '',
+            summary: s.summary
+        }));
+        compiledChapters.push({
+            title: project.title,
+            type: 'chapter',
+            scenes: rootScenes
+        });
+    }
+    return { project, author, chapters: compiledChapters };
+}
+// Compile & Download EPUB 3 E-Book (.epub)
+app.all('/api/projects/:projectId/export/epub', async (req, res) => {
+    try {
+        const { projectId } = req.params;
+        const options = { ...(req.query || {}), ...(req.body || {}) };
+        const { project, author, chapters } = await getProjectCompilationData(projectId);
+        compiler_service_1.CompilerService.compileEpub(res, project, author, chapters, {
+            theme: options.theme || 'classic',
+            publisher: options.publisher || 'OpenCrafter Studio',
+            language: options.language || 'en',
+            includeToc: options.includeToc !== false
+        });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Compile & Download Microsoft Word (.docx) Manuscript
+app.all('/api/projects/:projectId/export/docx', async (req, res) => {
+    try {
+        const { projectId } = req.params;
+        const options = { ...(req.query || {}), ...(req.body || {}) };
+        const { project, author, chapters } = await getProjectCompilationData(projectId);
+        compiler_service_1.CompilerService.compileDocx(res, project, author, chapters, {
+            format: options.format || 'standard_manuscript',
+            includeTitlePage: options.includeTitlePage !== 'false' && options.includeTitlePage !== false,
+            fontFamily: options.fontFamily || 'Times New Roman'
+        });
     }
     catch (error) {
         res.status(500).json({ error: error.message });

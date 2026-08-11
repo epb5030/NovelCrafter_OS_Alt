@@ -8,7 +8,9 @@ import {
   Check, 
   Copy, 
   Sliders, 
-  Printer
+  Printer,
+  Book,
+  FileCode
 } from 'lucide-react';
 
 interface ExportModalProps {
@@ -19,6 +21,14 @@ interface ExportModalProps {
   onClose: () => void;
 }
 
+export type ExportFormatType = 
+  | 'epub'
+  | 'docx'
+  | 'manuscript_md' 
+  | 'manuscript_html' 
+  | 'codex_bible' 
+  | 'backup_json';
+
 export const ExportModal: React.FC<ExportModalProps> = ({
   projectId,
   projectName,
@@ -26,10 +36,23 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   isOpen,
   onClose
 }) => {
-  const [exportType, setExportType] = useState<'manuscript_md' | 'manuscript_html' | 'codex_bible' | 'backup_json'>('manuscript_md');
+  const [exportType, setExportType] = useState<ExportFormatType>('epub');
+  
+  // Manuscript / Markdown / HTML Options
   const [includeActs, setIncludeActs] = useState<boolean>(true);
   const [includeSummaries, setIncludeSummaries] = useState<boolean>(false);
   const [sceneDivider, setSceneDivider] = useState<string>('* * *');
+  
+  // EPUB Options
+  const [epubTheme, setEpubTheme] = useState<'classic' | 'modern' | 'vintage'>('classic');
+  const [epubPublisher, setEpubPublisher] = useState<string>('OpenCrafter Studio');
+  const [epubLanguage, setEpubLanguage] = useState<string>('en');
+  
+  // DOCX Options
+  const [docxFormat, setDocxFormat] = useState<'standard_manuscript' | 'reading_draft'>('standard_manuscript');
+  const [docxTitlePage, setDocxTitlePage] = useState<boolean>(true);
+  
+  // Preview State
   const [previewContent, setPreviewContent] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
@@ -37,6 +60,17 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   // Fetch Preview
   const fetchPreview = async () => {
     if (!isOpen) return;
+    
+    // Binary formats don't show text preview in the box, show helpful summary
+    if (exportType === 'epub') {
+      setPreviewContent(`[EPUB 3 E-Book Binary Package]\n\nReady to compile: "${projectName}.epub"\n- Compatible with: Amazon Kindle, Apple Books, Kobo, Google Play Books\n- Typography Theme: ${epubTheme.toUpperCase()}\n- Publisher: ${epubPublisher}\n- Language: ${epubLanguage}\n- Structure: Valid EPUB 3 OEBPS container with dynamic Table of Contents\n\nClick "Download EPUB E-Book" below to generate binary e-book.`);
+      return;
+    }
+    if (exportType === 'docx') {
+      setPreviewContent(`[Microsoft Word Document (.docx) Package]\n\nReady to compile: "${projectName}.docx"\n- Formatting Standard: ${docxFormat === 'standard_manuscript' ? 'Standard Shunn Literary Submission (Double spaced, 1-inch margins, Times New Roman)' : 'Clean Reading Draft (1.15 spaced, Calibri)'}\n- Title Page: ${docxTitlePage ? 'Included (Author Pen Name, Contact Email, Approx. Word Count)' : 'Omitted'}\n- Scene Breaks: Centered # symbol\n\nClick "Download Word Manuscript" below to generate .docx file.`);
+      return;
+    }
+
     setLoading(true);
     try {
       if (exportType === 'manuscript_md') {
@@ -85,10 +119,31 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   useEffect(() => {
     fetchPreview();
-  }, [isOpen, exportType, includeActs, includeSummaries, sceneDivider]);
+  }, [isOpen, exportType, includeActs, includeSummaries, sceneDivider, epubTheme, epubPublisher, epubLanguage, docxFormat, docxTitlePage]);
 
+  // Handle Binary and Text Downloads
   const handleDownload = () => {
-    let url = '';
+    const slug = (projectName || 'manuscript').replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    if (exportType === 'epub') {
+      const query = new URLSearchParams({
+        theme: epubTheme,
+        publisher: epubPublisher,
+        language: epubLanguage
+      });
+      window.location.href = `${apiBase}/projects/${projectId}/export/epub?${query}`;
+      return;
+    }
+
+    if (exportType === 'docx') {
+      const query = new URLSearchParams({
+        format: docxFormat,
+        includeTitlePage: String(docxTitlePage)
+      });
+      window.location.href = `${apiBase}/projects/${projectId}/export/docx?${query}`;
+      return;
+    }
+
     if (exportType === 'manuscript_md') {
       const query = new URLSearchParams({
         format: 'markdown',
@@ -97,35 +152,23 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         sceneDivider,
         download: 'true'
       });
-      url = `${apiBase}/projects/${projectId}/export/manuscript?${query}`;
+      window.location.href = `${apiBase}/projects/${projectId}/export/manuscript?${query}`;
     } else if (exportType === 'manuscript_html') {
-      const query = new URLSearchParams({
-        format: 'html',
-        includeActs: String(includeActs),
-        includeSummaries: String(includeSummaries),
-        sceneDivider,
-        download: 'true'
-      });
-      url = `${apiBase}/projects/${projectId}/export/manuscript?${query}`;
-    } else if (exportType === 'codex_bible') {
-      url = `${apiBase}/projects/${projectId}/export/codex-bible?download=true`;
-    } else if (exportType === 'backup_json') {
-      const a = document.createElement('a');
-      a.href = 'data:application/json;charset=utf-8,' + encodeURIComponent(previewContent);
-      a.download = `${projectName.replace(/[^a-zA-Z0-9_-]/g, '_')}_backup.json`;
-      a.click();
-      return;
-    }
-
-    if (url) {
+      const blob = new Blob([previewContent], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.target = '_blank';
+      a.download = `${slug}_printable_manuscript.html`;
       a.click();
+      URL.revokeObjectURL(url);
+    } else if (exportType === 'codex_bible') {
+      window.location.href = `${apiBase}/projects/${projectId}/export/codex-bible?download=true`;
+    } else if (exportType === 'backup_json') {
+      window.location.href = `${apiBase}/projects/${projectId}/export?download=true`;
     }
   };
 
-  const handlePrintHTML = () => {
+  const handlePrint = () => {
     if (exportType === 'manuscript_html') {
       const printWindow = window.open('', '_blank');
       if (printWindow) {
@@ -152,14 +195,14 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       <div 
         className="modal-content animate-scale" 
         style={{ 
-          maxWidth: '850px', 
-          maxHeight: '90vh', 
+          maxWidth: '920px', 
+          maxHeight: '92vh', 
           display: 'flex', 
           flexDirection: 'column',
-          padding: '24px',
-          background: 'rgba(15, 15, 23, 0.98)',
-          border: '1px solid rgba(129, 140, 248, 0.3)',
-          boxShadow: '0 20px 50px rgba(0,0,0,0.8)'
+          padding: '24px', 
+          background: 'var(--bg-panel)', 
+          border: '1px solid var(--border-light)', 
+          boxShadow: 'var(--shadow-premium)' 
         }}
       >
         {/* Header */}
@@ -168,7 +211,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             <Download size={20} style={{ color: 'var(--primary)' }} />
             <div>
               <h2 style={{ fontSize: '18px', color: '#ffffff', fontFamily: 'var(--font-display)' }}>
-                Manuscript & Story Bible Export Studio
+                Manuscript & Book Compiler Studio
               </h2>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{projectName}</span>
             </div>
@@ -182,15 +225,64 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           </button>
         </div>
 
-        {/* Format Selectors */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', marginBottom: '16px' }}>
+        {/* 6 Format Selector Cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '16px' }}>
+          
+          {/* 1. EPUB 3 E-Book */}
           <button
+            type="button"
+            onClick={() => setExportType('epub')}
+            style={{
+              padding: '12px',
+              borderRadius: '8px',
+              border: exportType === 'epub' ? '2px solid var(--primary)' : '1px solid var(--border-light)',
+              background: exportType === 'epub' ? 'rgba(200, 157, 84, 0.15)' : 'rgba(0,0,0,0.2)',
+              color: exportType === 'epub' ? '#ffffff' : 'var(--text-secondary)',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px',
+              textAlign: 'left'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '13px', color: exportType === 'epub' ? 'var(--primary)' : '#ffffff' }}>
+              <Book size={15} /> EPUB 3 E-Book (.epub)
+            </div>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Publish-ready e-book for Kindle, Apple Books & Kobo.</span>
+          </button>
+
+          {/* 2. Word (.docx) */}
+          <button
+            type="button"
+            onClick={() => setExportType('docx')}
+            style={{
+              padding: '12px',
+              borderRadius: '8px',
+              border: exportType === 'docx' ? '2px solid #38bdf8' : '1px solid var(--border-light)',
+              background: exportType === 'docx' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(0,0,0,0.2)',
+              color: exportType === 'docx' ? '#ffffff' : 'var(--text-secondary)',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px',
+              textAlign: 'left'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '13px', color: exportType === 'docx' ? '#38bdf8' : '#ffffff' }}>
+              <FileText size={15} /> Microsoft Word (.docx)
+            </div>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Industry-standard Shunn submission format.</span>
+          </button>
+
+          {/* 3. Markdown (.md) */}
+          <button
+            type="button"
             onClick={() => setExportType('manuscript_md')}
             style={{
               padding: '12px',
               borderRadius: '8px',
-              border: exportType === 'manuscript_md' ? '2px solid var(--primary)' : '1px solid var(--border-light)',
-              background: exportType === 'manuscript_md' ? 'rgba(129, 140, 248, 0.15)' : 'rgba(0,0,0,0.2)',
+              border: exportType === 'manuscript_md' ? '2px solid #a78bfa' : '1px solid var(--border-light)',
+              background: exportType === 'manuscript_md' ? 'rgba(167, 139, 250, 0.15)' : 'rgba(0,0,0,0.2)',
               color: exportType === 'manuscript_md' ? '#ffffff' : 'var(--text-secondary)',
               cursor: 'pointer',
               display: 'flex',
@@ -199,19 +291,21 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               textAlign: 'left'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '13px' }}>
-              <FileText size={14} style={{ color: 'var(--primary)' }} /> Markdown (.md)
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '13px', color: exportType === 'manuscript_md' ? '#a78bfa' : '#ffffff' }}>
+              <FileCode size={15} /> Markdown (.md)
             </div>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Complete compiled prose formatted with headers.</span>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Clean prose markdown with chapter headers.</span>
           </button>
 
+          {/* 4. Print HTML / PDF */}
           <button
+            type="button"
             onClick={() => setExportType('manuscript_html')}
             style={{
               padding: '12px',
               borderRadius: '8px',
-              border: exportType === 'manuscript_html' ? '2px solid var(--secondary)' : '1px solid var(--border-light)',
-              background: exportType === 'manuscript_html' ? 'rgba(167, 139, 250, 0.15)' : 'rgba(0,0,0,0.2)',
+              border: exportType === 'manuscript_html' ? '2px solid #34d399' : '1px solid var(--border-light)',
+              background: exportType === 'manuscript_html' ? 'rgba(52, 211, 153, 0.15)' : 'rgba(0,0,0,0.2)',
               color: exportType === 'manuscript_html' ? '#ffffff' : 'var(--text-secondary)',
               cursor: 'pointer',
               display: 'flex',
@@ -220,13 +314,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               textAlign: 'left'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '13px' }}>
-              <Printer size={14} style={{ color: 'var(--secondary)' }} /> Print HTML / PDF
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '13px', color: exportType === 'manuscript_html' ? '#34d399' : '#ffffff' }}>
+              <Printer size={15} /> Printable HTML / PDF
             </div>
             <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Book typography with page breaks for printing to PDF.</span>
           </button>
 
+          {/* 5. Codex Bible (.md) */}
           <button
+            type="button"
             onClick={() => setExportType('codex_bible')}
             style={{
               padding: '12px',
@@ -241,19 +337,21 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               textAlign: 'left'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '13px' }}>
-              <BookOpen size={14} style={{ color: '#fbbf24' }} /> Codex Bible (.md)
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '13px', color: exportType === 'codex_bible' ? '#fbbf24' : '#ffffff' }}>
+              <BookOpen size={15} /> Codex Bible (.md)
             </div>
             <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Worldbuilding encyclopedia and character guide.</span>
           </button>
 
+          {/* 6. Project Backup (.json) */}
           <button
+            type="button"
             onClick={() => setExportType('backup_json')}
             style={{
               padding: '12px',
               borderRadius: '8px',
-              border: exportType === 'backup_json' ? '2px solid #4ade80' : '1px solid var(--border-light)',
-              background: exportType === 'backup_json' ? 'rgba(74, 222, 128, 0.15)' : 'rgba(0,0,0,0.2)',
+              border: exportType === 'backup_json' ? '2px solid #f472b6' : '1px solid var(--border-light)',
+              background: exportType === 'backup_json' ? 'rgba(244, 114, 182, 0.15)' : 'rgba(0,0,0,0.2)',
               color: exportType === 'backup_json' ? '#ffffff' : 'var(--text-secondary)',
               cursor: 'pointer',
               display: 'flex',
@@ -262,130 +360,194 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               textAlign: 'left'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '13px' }}>
-              <Database size={14} style={{ color: '#4ade80' }} /> Database Archive (.json)
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '13px', color: exportType === 'backup_json' ? '#f472b6' : '#ffffff' }}>
+              <Database size={15} /> Project Archive (.json)
             </div>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Full project backup for restoring on another machine.</span>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Complete database snapshot for backup and transfer.</span>
           </button>
         </div>
 
-        {/* Compile Configuration Controls (for manuscript exports) */}
-        {(exportType === 'manuscript_md' || exportType === 'manuscript_html') && (
-          <div 
-            className="glass-panel" 
-            style={{ 
-              padding: '12px 16px', 
-              display: 'flex', 
-              gap: '20px', 
-              alignItems: 'center', 
-              flexWrap: 'wrap',
-              marginBottom: '14px',
-              fontSize: '12px',
-              background: 'rgba(0,0,0,0.25)'
-            }}
-          >
-            <span style={{ fontWeight: 600, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Sliders size={13} /> Formatting Options:
-            </span>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: 'var(--text-secondary)' }}>
-              <input
-                type="checkbox"
-                checked={includeActs}
-                onChange={(e) => setIncludeActs(e.target.checked)}
-              />
-              Include Act Headings
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: 'var(--text-secondary)' }}>
-              <input
-                type="checkbox"
-                checked={includeSummaries}
-                onChange={(e) => setIncludeSummaries(e.target.checked)}
-              />
-              Include Chapter Plot Summaries
-            </label>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ color: 'var(--text-secondary)' }}>Scene Break Divider:</span>
+        {/* Dynamic Options Bar */}
+        {exportType === 'epub' && (
+          <div className="glass-panel" style={{ padding: '12px 16px', marginBottom: '14px', display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="label" style={{ fontSize: '12px', margin: 0 }}>Typography Theme:</span>
               <select
-                value={sceneDivider}
-                onChange={(e) => setSceneDivider(e.target.value)}
+                value={epubTheme}
+                onChange={(e) => setEpubTheme(e.target.value as any)}
                 className="input"
-                style={{ padding: '3px 8px', fontSize: '11px', width: 'auto' }}
+                style={{ padding: '4px 8px', fontSize: '12px' }}
               >
-                <option value="* * *">* * * (Asterisks)</option>
-                <option value="~ ~ ~">~ ~ ~ (Tildes)</option>
-                <option value="###">### (Hashes)</option>
-                <option value="---">--- (Horizontal Rule)</option>
-                <option value="">None (Empty Line)</option>
+                <option value="classic">Classic Garamond Serif</option>
+                <option value="modern">Modern Sans-Serif</option>
+                <option value="vintage">Vintage Typewriter</option>
               </select>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="label" style={{ fontSize: '12px', margin: 0 }}>Publisher:</span>
+              <input
+                type="text"
+                value={epubPublisher}
+                onChange={(e) => setEpubPublisher(e.target.value)}
+                className="input"
+                style={{ padding: '4px 8px', fontSize: '12px', width: '150px' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="label" style={{ fontSize: '12px', margin: 0 }}>Lang:</span>
+              <input
+                type="text"
+                value={epubLanguage}
+                onChange={(e) => setEpubLanguage(e.target.value)}
+                className="input"
+                placeholder="en"
+                style={{ padding: '4px 8px', fontSize: '12px', width: '50px', textAlign: 'center' }}
+              />
             </div>
           </div>
         )}
 
-        {/* Live Preview Box */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-          <span style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600 }}>
-            Compiled Document Preview ({previewContent.length.toLocaleString()} characters)
-          </span>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <button
-              onClick={handleCopy}
-              className="btn btn-secondary"
-              style={{ padding: '3px 8px', fontSize: '11px' }}
-            >
-              {copied ? <Check size={11} style={{ color: '#4ade80' }} /> : <Copy size={11} />} {copied ? 'Copied!' : 'Copy to Clipboard'}
-            </button>
-            {exportType === 'manuscript_html' && (
-              <button
-                onClick={handlePrintHTML}
-                className="btn btn-secondary"
-                style={{ padding: '3px 8px', fontSize: '11px' }}
+        {exportType === 'docx' && (
+          <div className="glass-panel" style={{ padding: '12px 16px', marginBottom: '14px', display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="label" style={{ fontSize: '12px', margin: 0 }}>Format Style:</span>
+              <select
+                value={docxFormat}
+                onChange={(e) => setDocxFormat(e.target.value as any)}
+                className="input"
+                style={{ padding: '4px 8px', fontSize: '12px' }}
               >
-                <Printer size={11} /> Print to PDF
+                <option value="standard_manuscript">Standard Shunn Submission (Double-Spaced, Times New Roman)</option>
+                <option value="reading_draft">Clean Reading Draft (1.15 Spaced, Calibri)</option>
+              </select>
+            </div>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={docxTitlePage} 
+                onChange={(e) => setDocxTitlePage(e.target.checked)} 
+              />
+              Include Shunn Title Page (Author Info & Word Count)
+            </label>
+          </div>
+        )}
+
+        {(exportType === 'manuscript_md' || exportType === 'manuscript_html') && (
+          <div className="glass-panel" style={{ padding: '12px 16px', marginBottom: '14px', display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+              <Sliders size={14} style={{ color: 'var(--primary)' }} />
+              <span style={{ fontWeight: 600 }}>Prose Options:</span>
+            </div>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={includeActs} 
+                onChange={(e) => setIncludeActs(e.target.checked)} 
+              />
+              Include Act Headings
+            </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={includeSummaries} 
+                onChange={(e) => setIncludeSummaries(e.target.checked)} 
+              />
+              Include Scene Summaries
+            </label>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Scene Divider:</span>
+              <input 
+                type="text" 
+                value={sceneDivider} 
+                onChange={(e) => setSceneDivider(e.target.value)} 
+                className="input"
+                style={{ width: '80px', padding: '4px 8px', fontSize: '12px', textAlign: 'center' }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Live Preview / Summary Box */}
+        <div style={{ position: 'relative', flex: 1, minHeight: '220px', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600 }}>
+              {['epub', 'docx'].includes(exportType) ? 'Package Details & Compilation Target:' : 'Compiled Output Preview:'}
+            </span>
+            {!['epub', 'docx'].includes(exportType) && (
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="btn btn-secondary"
+                style={{ padding: '3px 8px', fontSize: '11px', gap: '4px' }}
+              >
+                {copied ? <Check size={12} style={{ color: 'var(--status-done)' }} /> : <Copy size={12} />}
+                {copied ? 'Copied!' : 'Copy to Clipboard'}
               </button>
             )}
           </div>
-        </div>
 
-        <div 
-          style={{ 
-            flex: 1, 
-            overflowY: 'auto', 
-            backgroundColor: 'rgba(0,0,0,0.4)', 
-            border: '1px solid var(--border-light)', 
-            borderRadius: '8px', 
-            padding: '16px',
-            fontFamily: exportType === 'backup_json' ? 'monospace' : 'var(--font-sans)',
-            fontSize: '13px',
-            lineHeight: '1.6',
-            whiteSpace: 'pre-wrap',
-            color: 'rgba(255,255,255,0.85)',
-            maxHeight: '380px'
-          }}
-        >
-          {loading ? 'Compiling manuscript preview...' : previewContent || '<Empty Document>'}
+          <div 
+            style={{ 
+              flex: 1, 
+              backgroundColor: 'rgba(0,0,0,0.3)', 
+              border: '1px solid var(--border-light)', 
+              borderRadius: '6px', 
+              padding: '14px', 
+              overflowY: 'auto',
+              fontFamily: ['manuscript_md', 'codex_bible', 'backup_json'].includes(exportType) ? 'monospace' : 'inherit',
+              fontSize: '12px',
+              color: 'var(--text-secondary)',
+              whiteSpace: 'pre-wrap',
+              lineHeight: 1.6
+            }}
+          >
+            {loading ? 'Compiling preview...' : previewContent}
+          </div>
         </div>
 
         {/* Footer Actions */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={onClose}
-          >
-            Close
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={handleDownload}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
-            <Download size={14} /> Download Export File
-          </button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', borderTop: '1px solid var(--border-light)', paddingTop: '14px' }}>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+            {exportType === 'epub' && '📦 Generates valid EPUB 3 e-book with manifest, spine & NCX navigation.'}
+            {exportType === 'docx' && '📄 Generates industry-formatted Microsoft Word .docx file.'}
+            {exportType === 'manuscript_html' && '💡 Open print view and select "Save as PDF" in your browser print dialog.'}
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px' }}>
+            {exportType === 'manuscript_html' && (
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="btn btn-secondary"
+                style={{ padding: '8px 16px', gap: '6px' }}
+              >
+                <Printer size={15} /> Print / Save PDF
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleDownload}
+              className="btn btn-primary"
+              style={{ padding: '8px 20px', gap: '6px', fontWeight: 600 }}
+            >
+              <Download size={15} /> 
+              {exportType === 'epub' && 'Download EPUB E-Book'}
+              {exportType === 'docx' && 'Download Word Manuscript'}
+              {exportType === 'manuscript_md' && 'Download Markdown'}
+              {exportType === 'manuscript_html' && 'Download HTML'}
+              {exportType === 'codex_bible' && 'Download Story Bible'}
+              {exportType === 'backup_json' && 'Download Project Backup'}
+            </button>
+          </div>
         </div>
+
       </div>
     </div>
   );

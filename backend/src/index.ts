@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { getDatabase } from './config/database';
 import { AIService } from './services/ai.service';
+import { CompilerService } from './services/compiler.service';
 import path from 'path';
 
 const app = express();
@@ -343,6 +344,110 @@ app.get('/api/projects/:projectId/export/manuscript', async (req, res) => {
       }
       return res.send(md);
     }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper function to build structured chapter hierarchy for binary compilers
+async function getProjectCompilationData(projectId: string | number) {
+  const db = await getDatabase();
+  const project = await db.get('SELECT * FROM projects WHERE id = ?', projectId);
+  if (!project) throw new Error('Project not found');
+
+  let author = await db.get('SELECT * FROM author_profiles WHERE is_active = 1 LIMIT 1');
+  if (!author) {
+    author = { pen_name: 'Author', email: '' };
+  }
+
+  const outline = await db.all('SELECT * FROM outline_elements WHERE project_id = ? ORDER BY position ASC', projectId);
+  const sceneRows = await db.all(`
+    SELECT o.id, sc.content 
+    FROM outline_elements o
+    LEFT JOIN scene_contents sc ON o.id = sc.scene_id
+    WHERE o.project_id = ? AND o.type = 'scene'
+  `, projectId);
+
+  const contentMap: Record<number, string> = {};
+  for (const row of sceneRows) {
+    contentMap[row.id] = row.content || '';
+  }
+
+  const chapters = outline.filter(el => el.type === 'chapter').sort((a, b) => a.position - b.position);
+  const compiledChapters: Array<{
+    title: string;
+    type: string;
+    scenes: Array<{ title: string; content: string; summary?: string }>;
+  }> = [];
+
+  if (chapters.length > 0) {
+    for (const chap of chapters) {
+      const chapScenes = outline
+        .filter(el => el.type === 'scene' && el.parent_id === chap.id)
+        .sort((a, b) => a.position - b.position)
+        .map(s => ({
+          title: s.title,
+          content: contentMap[s.id] || '',
+          summary: s.summary
+        }));
+
+      compiledChapters.push({
+        title: chap.title,
+        type: 'chapter',
+        scenes: chapScenes
+      });
+    }
+  } else {
+    // If no chapter folders, package root scenes
+    const rootScenes = outline
+      .filter(el => el.type === 'scene')
+      .sort((a, b) => a.position - b.position)
+      .map(s => ({
+        title: s.title,
+        content: contentMap[s.id] || '',
+        summary: s.summary
+      }));
+
+    compiledChapters.push({
+      title: project.title,
+      type: 'chapter',
+      scenes: rootScenes
+    });
+  }
+
+  return { project, author, chapters: compiledChapters };
+}
+
+// Compile & Download EPUB 3 E-Book (.epub)
+app.all('/api/projects/:projectId/export/epub', async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const options = { ...(req.query || {}), ...(req.body || {}) };
+    const { project, author, chapters } = await getProjectCompilationData(projectId);
+
+    CompilerService.compileEpub(res, project, author, chapters, {
+      theme: options.theme || 'classic',
+      publisher: options.publisher || 'OpenCrafter Studio',
+      language: options.language || 'en',
+      includeToc: options.includeToc !== false
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Compile & Download Microsoft Word (.docx) Manuscript
+app.all('/api/projects/:projectId/export/docx', async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const options = { ...(req.query || {}), ...(req.body || {}) };
+    const { project, author, chapters } = await getProjectCompilationData(projectId);
+
+    CompilerService.compileDocx(res, project, author, chapters, {
+      format: options.format || 'standard_manuscript',
+      includeTitlePage: options.includeTitlePage !== 'false' && options.includeTitlePage !== false,
+      fontFamily: options.fontFamily || 'Times New Roman'
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
