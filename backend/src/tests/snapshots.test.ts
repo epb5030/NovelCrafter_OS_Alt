@@ -90,6 +90,15 @@ describe('Scene Version History & Snapshots API (/api/scenes/:sceneId/snapshots)
     expect(res.body.content).toContain('deep cosmos');
   });
 
+  it('should update a snapshot label', async () => {
+    const { app } = await import('../index');
+    const res = await request(app)
+      .put(`/api/scenes/${sceneId}/snapshots/${createdSnapshotId}/label`)
+      .send({ label: 'Polished First Draft V2' });
+    expect(res.status).toBe(200);
+    expect(res.body.label).toBe('Polished First Draft V2');
+  });
+
   it('should restore a snapshot and create a safety backup of current scene prose', async () => {
     const { app } = await import('../index');
     const res = await request(app).post(`/api/scenes/${sceneId}/snapshots/${createdSnapshotId}/restore`);

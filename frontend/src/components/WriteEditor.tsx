@@ -29,7 +29,8 @@ import {
   Flame, 
   Stethoscope, 
   ListOrdered,
-  Mic
+  Mic,
+  Edit3
 } from 'lucide-react';
 import type { CodexEntry } from './CodexManager';
 import type { OutlineElement } from './OutlinePlanner';
@@ -751,6 +752,25 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
       }
     } catch (err) {
       console.error('Failed to delete snapshot:', err);
+    }
+  };
+
+  const handleRenameSnapshotLabel = async (snapshotId: number, currentLabel: string) => {
+    if (!activeSceneId) return;
+    const newLabel = prompt('Rename snapshot label:', currentLabel);
+    if (!newLabel || !newLabel.trim() || newLabel.trim() === currentLabel) return;
+
+    try {
+      const res = await fetch(`${apiBase}/scenes/${activeSceneId}/snapshots/${snapshotId}/label`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: newLabel.trim() })
+      });
+      if (res.ok) {
+        fetchSnapshots(activeSceneId);
+      }
+    } catch (err) {
+      console.error('Failed to rename snapshot label:', err);
     }
   };
 
@@ -1540,9 +1560,18 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
                         }}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <span style={{ fontWeight: 600, fontSize: '12px', color: '#ffffff', wordBreak: 'break-word' }}>
-                            {snap.label}
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontWeight: 600, fontSize: '12px', color: '#ffffff', wordBreak: 'break-word' }}>
+                              {snap.label}
+                            </span>
+                            <button
+                              onClick={() => handleRenameSnapshotLabel(snap.id, snap.label)}
+                              title="Rename Snapshot Label"
+                              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px' }}
+                            >
+                              <Edit3 size={11} />
+                            </button>
+                          </div>
                           <span 
                             style={{ 
                               fontSize: '10px', 

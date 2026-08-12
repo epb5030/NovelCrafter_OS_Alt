@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, RotateCcw, GitCompare, FileText, CheckCircle2, History } from 'lucide-react';
+import { X, RotateCcw, GitCompare, FileText, CheckCircle2, History, Download, Copy, Check } from 'lucide-react';
 
 export interface DiffLine {
   type: 'added' | 'removed' | 'unchanged';
@@ -8,15 +8,42 @@ export interface DiffLine {
   text: string;
 }
 
-interface DiffViewerModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  snapshotLabel: string;
-  snapshotCreatedAt: string;
-  currentContent: string;
-  snapshotContent: string;
-  onRestore: () => void;
-  isRestoring?: boolean;
+export interface WordToken {
+  type: 'added' | 'removed' | 'unchanged';
+  word: string;
+}
+
+/**
+ * Computes word-level diff tokens between two modified lines of text.
+ */
+export function computeWordTokenDiff(oldLine: string, newLine: string): WordToken[] {
+  const oldWords = oldLine.split(/(\s+)/);
+  const newWords = newLine.split(/(\s+)/);
+  const tokens: WordToken[] = [];
+
+  let i = 0;
+  let j = 0;
+
+  while (i < oldWords.length || j < newWords.length) {
+    const wOld = oldWords[i];
+    const wNew = newWords[j];
+
+    if (i < oldWords.length && j < newWords.length && wOld === wNew) {
+      tokens.push({ type: 'unchanged', word: wOld });
+      i++;
+      j++;
+    } else if (j < newWords.length && (!oldWords.slice(i).includes(wNew) || oldWords.indexOf(wNew, i) > i + 3)) {
+      tokens.push({ type: 'added', word: wNew });
+      j++;
+    } else if (i < oldWords.length) {
+      tokens.push({ type: 'removed', word: wOld });
+      i++;
+    } else {
+      j++;
+    }
+  }
+
+  return tokens;
 }
 
 /**
@@ -69,6 +96,17 @@ export function computeProseDiff(oldText: string, newText: string): DiffLine[] {
   return result;
 }
 
+interface DiffViewerModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  snapshotLabel: string;
+  snapshotCreatedAt: string;
+  currentContent: string;
+  snapshotContent: string;
+  onRestore: () => void;
+  isRestoring?: boolean;
+}
+
 export const DiffViewerModal: React.FC<DiffViewerModalProps> = ({
   isOpen,
   onClose,
@@ -80,6 +118,7 @@ export const DiffViewerModal: React.FC<DiffViewerModalProps> = ({
   isRestoring = false,
 }) => {
   const [viewMode, setViewMode] = useState<'unified' | 'split' | 'raw'>('split');
+  const [copied, setCopied] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
@@ -90,6 +129,23 @@ export const DiffViewerModal: React.FC<DiffViewerModalProps> = ({
   const formattedDate = snapshotCreatedAt
     ? new Date(snapshotCreatedAt).toLocaleString()
     : 'Unknown Date';
+
+  const handleCopySnapshot = () => {
+    navigator.clipboard.writeText(snapshotContent || '');
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleExportSnapshotTxt = () => {
+    const blob = new Blob([snapshotContent || ''], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeLabel = snapshotLabel.replace(/[^a-zA-Z0-9_-]/g, '_');
+    a.download = `snapshot_${safeLabel}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
@@ -217,7 +273,19 @@ export const DiffViewerModal: React.FC<DiffViewerModalProps> = ({
                       {line.newLineNumber || line.oldLineNumber || ''}
                     </span>
                     <span className="w-6 text-slate-400 select-none font-bold">{prefix}</span>
-                    <span className="flex-1 whitespace-pre-wrap font-serif text-sm">{line.text}</span>
+                    <span className="flex-1 whitespace-pre-wrap font-serif text-sm">
+                      {line.type === 'added' ? (
+                        <span className="bg-emerald-500/20 text-emerald-200 px-1 py-0.5 rounded border border-emerald-500/30">
+                          {line.text}
+                        </span>
+                      ) : line.type === 'removed' ? (
+                        <span className="bg-rose-500/20 text-rose-300 line-through px-1 py-0.5 rounded border border-rose-500/30">
+                          {line.text}
+                        </span>
+                      ) : (
+                        line.text
+                      )}
+                    </span>
                   </div>
                 );
               })}
@@ -233,8 +301,20 @@ export const DiffViewerModal: React.FC<DiffViewerModalProps> = ({
 
         {/* Modal Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-[#2a3044] bg-[#1a1f30]">
-          <div className="text-xs text-slate-400">
-            💡 Restoring this snapshot will automatically create a safety backup of your current editor prose.
+          <div className="flex items-center space-x-3 text-xs">
+            <button
+              onClick={handleCopySnapshot}
+              className="px-3 py-1.5 bg-[#2a3044] hover:bg-[#38415c] text-slate-200 rounded-md transition flex items-center gap-1.5 font-semibold"
+            >
+              {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+              {copied ? 'Copied Prose!' : 'Copy Snapshot Prose'}
+            </button>
+            <button
+              onClick={handleExportSnapshotTxt}
+              className="px-3 py-1.5 bg-[#2a3044] hover:bg-[#38415c] text-slate-200 rounded-md transition flex items-center gap-1.5 font-semibold"
+            >
+              <Download size={14} /> Export (.txt)
+            </button>
           </div>
 
           <div className="flex items-center space-x-3">

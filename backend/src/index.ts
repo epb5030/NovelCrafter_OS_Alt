@@ -1225,6 +1225,35 @@ app.post('/api/scenes/:sceneId/snapshots', async (req, res) => {
   }
 });
 
+// Update snapshot label
+app.put('/api/scenes/:sceneId/snapshots/:snapshotId/label', async (req, res) => {
+  const { label } = req.body;
+  if (!label || !label.trim()) {
+    return res.status(400).json({ error: 'Label is required' });
+  }
+
+  try {
+    const db = await getDatabase();
+    await db.run(
+      'UPDATE scene_snapshots SET label = ? WHERE id = ? AND scene_id = ?',
+      label.trim(),
+      req.params.snapshotId,
+      req.params.sceneId
+    );
+
+    const updated = await db.get(
+      'SELECT id, scene_id, word_count, label, source, created_at FROM scene_snapshots WHERE id = ?',
+      req.params.snapshotId
+    );
+    if (!updated) {
+      return res.status(404).json({ error: 'Snapshot not found' });
+    }
+    res.json(updated);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Delete snapshot
 app.delete('/api/scenes/:sceneId/snapshots/:snapshotId', async (req, res) => {
   try {

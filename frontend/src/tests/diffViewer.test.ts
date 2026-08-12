@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeProseDiff } from '../components/DiffViewerModal';
+import { computeProseDiff, computeWordTokenDiff } from '../components/DiffViewerModal';
 
 describe('Prose Diff Algorithm (computeProseDiff)', () => {
   it('should return unchanged lines for identical prose', () => {
@@ -24,5 +24,17 @@ describe('Prose Diff Algorithm (computeProseDiff)', () => {
 
     const diff = computeProseDiff(oldText, newText);
     expect(diff.some(d => d.type === 'removed' && d.text.includes('Line 2'))).toBe(true);
+  });
+});
+
+describe('Word Token Diff Algorithm (computeWordTokenDiff)', () => {
+  it('should detect word additions and removals within a sentence', () => {
+    const oldLine = 'Valerius walked into the dark citadel.';
+    const newLine = 'Valerius walked quietly into the bright citadel.';
+
+    const tokens = computeWordTokenDiff(oldLine, newLine);
+    expect(tokens.some(t => t.type === 'added' && t.word.includes('quietly'))).toBe(true);
+    expect(tokens.some(t => t.type === 'removed' && t.word.includes('dark'))).toBe(true);
+    expect(tokens.some(t => t.type === 'added' && t.word.includes('bright'))).toBe(true);
   });
 });
