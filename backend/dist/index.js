@@ -1172,8 +1172,85 @@ app.post('/api/settings/clear-keys', async (req, res) => {
     }
 });
 // ==========================================
-// 6. AI DISPATCH API
+// 6. AI DISPATCH API & WORKBENCH
 // ==========================================
+// AI Prompt Tuning Sandbox & Test Endpoint
+app.post('/api/ai/test-prompt', async (req, res) => {
+    const { template, sampleInput, temperature, pov, tone, guidance } = req.body;
+    if (!template) {
+        return res.status(400).json({ error: 'Prompt template is required' });
+    }
+    try {
+        const rawTemplate = String(template);
+        const sampleText = String(sampleInput || 'The night air was cold as Valerius stepped into the vault.');
+        const activePov = String(pov || 'Third Person Limited');
+        const activeTone = String(tone || 'Balanced Narrative');
+        const customRules = String(guidance || 'Avoid clichés; use sensory prose.');
+        // Variable substitution
+        const compiledPrompt = rawTemplate
+            .replace(/\{\{prose\}\}/g, sampleText)
+            .replace(/\{\{input\}\}/g, sampleText)
+            .replace(/\{\{pov\}\}/g, activePov)
+            .replace(/\{\{tone\}\}/g, activeTone)
+            .replace(/\{\{guidance\}\}/g, customRules)
+            .replace(/\{\{rules\}\}/g, customRules);
+        res.json({
+            template: rawTemplate,
+            compiledPrompt,
+            temperature: temperature ?? 0.7,
+            simulatedOutput: `[AI Output Workbench Preview]\nTone: ${activeTone} (${activePov})\n\n${sampleText} A faint blue shimmer radiated from the parchment as the silver ink began to re-align under the moonlight.`
+        });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Style Personas Endpoint
+app.get('/api/ai/personas', async (req, res) => {
+    const personas = [
+        {
+            id: 'grimdark',
+            name: 'Grimdark & Gritty',
+            description: 'Gritty, visceral, dark tone with high stakes and atmospheric tension.',
+            pov: 'Third Person Limited',
+            tone: 'Grimdark & Gritty',
+            rules: 'Use stark sensory details. Emphasize mud, blood, rust, and moral ambiguity.'
+        },
+        {
+            id: 'cozy_mystery',
+            name: 'Cozy Mystery',
+            description: 'Charming, witty, observant dialogue with subtle puzzle-box clues.',
+            pov: 'First Person',
+            tone: 'Humorous & Witty',
+            rules: 'Lighthearted tone, observant social details, gentle humor, sharp dialogue.'
+        },
+        {
+            id: 'hard_scifi',
+            name: 'Hard Sci-Fi',
+            description: 'Scientifically grounded, technical precision, cosmic scale.',
+            pov: 'Third Person Limited',
+            tone: 'Balanced Narrative',
+            rules: 'Precise technical descriptions, orbital mechanics, physics principles, logical dialogue.'
+        },
+        {
+            id: 'lyrical',
+            name: 'Lyrical & Atmospheric',
+            description: 'Poetic cadence, sensory description, rich metaphors.',
+            pov: 'Third Person Omniscient',
+            tone: 'Lyrical & Atmospheric',
+            rules: 'Use rhythm, cadence, evocative color palettes, and metaphoric resonance.'
+        },
+        {
+            id: 'action',
+            name: 'Fast-Paced Action',
+            description: 'Kinetic verbs, punchy short sentences, high momentum.',
+            pov: 'Third Person Limited',
+            tone: 'Fast-Paced Action',
+            rules: 'Short punchy sentences. High kinetic verbs, spatial movement, zero fluff.'
+        }
+    ];
+    res.json(personas);
+});
 // Standard generation // Generate AI text (Non-streaming fallback)
 app.post('/api/ai/generate', async (req, res) => {
     const { sceneId, prompt, history, action, selection, beats, pacing, styleOverrides } = req.body;
