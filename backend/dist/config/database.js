@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getDatabase = getDatabase;
+exports.closeDatabase = closeDatabase;
 const sqlite3_1 = __importDefault(require("sqlite3"));
 const sqlite_1 = require("sqlite");
 const path_1 = __importDefault(require("path"));
@@ -28,6 +29,15 @@ async function getDatabase() {
     // Initialize schema
     await initializeSchema(dbInstance);
     return dbInstance;
+}
+async function closeDatabase() {
+    if (dbInstance) {
+        try {
+            await dbInstance.close();
+        }
+        catch (_) { }
+        dbInstance = null;
+    }
 }
 async function initializeSchema(db) {
     // Projects

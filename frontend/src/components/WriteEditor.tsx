@@ -36,6 +36,7 @@ import type { OutlineElement } from './OutlinePlanner';
 import { ProseDoctorModal } from './ProseDoctorModal';
 import { BeatExpanderModal } from './BeatExpanderModal';
 import { VoiceDoctorModal } from './VoiceDoctorModal';
+import { DiffViewerModal } from './DiffViewerModal';
 
 interface WriteEditorProps {
   projectId: number;
@@ -1776,72 +1777,17 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
         </div>
       )}
 
-      {/* PREVIEW SNAPSHOT MODAL */}
+      {/* SIDE-BY-SIDE VERSION HISTORY DIFF VIEWER MODAL */}
       {previewSnapshot && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '700px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <div>
-                <h3 style={{ fontSize: '18px', color: '#ffffff' }}>{previewSnapshot.label}</h3>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Recorded on {new Date(previewSnapshot.created_at).toLocaleString()} • {previewSnapshot.word_count} words
-                </span>
-              </div>
-              <button 
-                onClick={() => setPreviewSnapshot(null)}
-                className="btn btn-secondary"
-                style={{ padding: '6px' }}
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <div 
-              style={{ 
-                flex: 1, 
-                overflowY: 'auto', 
-                padding: '16px', 
-                backgroundColor: 'rgba(0,0,0,0.3)', 
-                borderRadius: '8px', 
-                border: '1px solid var(--border-light)',
-                whiteSpace: 'pre-wrap',
-                fontSize: '14px',
-                lineHeight: '1.7',
-                color: 'rgba(255,255,255,0.85)',
-                margin: '12px 0'
-              }}
-            >
-              {previewSnapshot.content || '<Empty Content>'}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
-              <button
-                onClick={() => handleDeleteSnapshot(previewSnapshot.id)}
-                className="btn btn-secondary"
-                style={{ color: '#f87171', fontSize: '12px' }}
-              >
-                <Trash2 size={13} /> Delete Snapshot
-              </button>
-
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setPreviewSnapshot(null)}
-                >
-                  Close
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => handleRestoreSnapshot(previewSnapshot.id)}
-                >
-                  <RotateCcw size={14} /> Restore to Active Draft
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <DiffViewerModal
+          isOpen={!!previewSnapshot}
+          onClose={() => setPreviewSnapshot(null)}
+          snapshotLabel={previewSnapshot.label || `Snapshot #${previewSnapshot.id}`}
+          snapshotCreatedAt={previewSnapshot.created_at}
+          currentContent={editorText}
+          snapshotContent={previewSnapshot.content || ''}
+          onRestore={() => handleRestoreSnapshot(previewSnapshot.id)}
+        />
       )}
 
       {/* REWRITE DIALOG MODAL (Streaming) */}

@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.app = void 0;
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const database_1 = require("./config/database");
@@ -10,13 +11,16 @@ const ai_service_1 = require("./services/ai.service");
 const compiler_service_1 = require("./services/compiler.service");
 const path_1 = __importDefault(require("path"));
 const app = (0, express_1.default)();
+exports.app = app;
 const PORT = process.env.PORT || 3005;
 app.use((0, cors_1.default)());
 app.use(express_1.default.json({ limit: '50mb' })); // Support larger payloads for book imports/exports
-// Initialize Database connection on start
-(0, database_1.getDatabase)()
-    .then(() => console.log('SQLite database initialized successfully.'))
-    .catch(err => console.error('Failed to initialize database:', err));
+// Initialize Database connection on start (when not running under test)
+if (process.env.NODE_ENV !== 'test') {
+    (0, database_1.getDatabase)()
+        .then(() => console.log('SQLite database initialized successfully.'))
+        .catch(err => console.error('Failed to initialize database:', err));
+}
 // ==========================================
 // 1. PROJECTS API
 // ==========================================
@@ -2294,7 +2298,10 @@ app.get('*', (req, res, next) => {
     }
     res.sendFile(path_1.default.join(frontendBuildPath, 'index.html'));
 });
-// Start server
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+// Start server (only when not running under test)
+if (process.env.NODE_ENV !== 'test') {
+    app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+    });
+}
+exports.default = app;

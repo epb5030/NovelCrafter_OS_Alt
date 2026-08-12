@@ -11,10 +11,12 @@ const PORT = process.env.PORT || 3005;
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); // Support larger payloads for book imports/exports
 
-// Initialize Database connection on start
-getDatabase()
-  .then(() => console.log('SQLite database initialized successfully.'))
-  .catch(err => console.error('Failed to initialize database:', err));
+// Initialize Database connection on start (when not running under test)
+if (process.env.NODE_ENV !== 'test') {
+  getDatabase()
+    .then(() => console.log('SQLite database initialized successfully.'))
+    .catch(err => console.error('Failed to initialize database:', err));
+}
 
 // ==========================================
 // 1. PROJECTS API
@@ -2644,7 +2646,12 @@ app.get('*', (req, res, next) => {
   res.sendFile(path.join(frontendBuildPath, 'index.html'));
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Start server (only when not running under test)
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+export default app;
+export { app };

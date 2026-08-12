@@ -32,6 +32,15 @@ export async function getDatabase(): Promise<Database> {
   return dbInstance;
 }
 
+export async function closeDatabase(): Promise<void> {
+  if (dbInstance) {
+    try {
+      await dbInstance.close();
+    } catch (_) {}
+    dbInstance = null;
+  }
+}
+
 async function initializeSchema(db: Database) {
   // Projects
   await db.exec(`
