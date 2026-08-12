@@ -51,6 +51,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   // DOCX Options
   const [docxFormat, setDocxFormat] = useState<'standard_manuscript' | 'reading_draft'>('standard_manuscript');
   const [docxTitlePage, setDocxTitlePage] = useState<boolean>(true);
+
+  // Front-Matter & Customization Options
+  const [dedication, setDedication] = useState<string>('');
+  const [copyrightNotice, setCopyrightNotice] = useState<string>('');
+  const [acknowledgments, setAcknowledgments] = useState<string>('');
+  const [showFrontMatterForm, setShowFrontMatterForm] = useState<boolean>(false);
   
   // Preview State
   const [previewContent, setPreviewContent] = useState<string>('');
@@ -129,7 +135,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       const query = new URLSearchParams({
         theme: epubTheme,
         publisher: epubPublisher,
-        language: epubLanguage
+        language: epubLanguage,
+        dedication,
+        copyrightNotice,
+        acknowledgments
       });
       window.location.href = `${apiBase}/projects/${projectId}/export/epub?${query}`;
       return;
@@ -138,7 +147,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     if (exportType === 'docx') {
       const query = new URLSearchParams({
         format: docxFormat,
-        includeTitlePage: String(docxTitlePage)
+        includeTitlePage: String(docxTitlePage),
+        dedication,
+        copyrightNotice,
+        acknowledgments
       });
       window.location.href = `${apiBase}/projects/${projectId}/export/docx?${query}`;
       return;
@@ -432,6 +444,63 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               />
               Include Shunn Title Page (Author Info & Word Count)
             </label>
+          </div>
+        )}
+
+        {['epub', 'docx'].includes(exportType) && (
+          <div style={{ marginBottom: '14px' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setShowFrontMatterForm(!showFrontMatterForm)}
+              style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', width: '100%', justifyContent: 'space-between', border: '1px solid var(--border-light)' }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <BookOpen size={14} style={{ color: 'var(--primary)' }} /> 
+                Book Front-Matter & Back-Matter (Dedication, Copyright & Acknowledgments)
+              </span>
+              <span style={{ fontSize: '11px', color: 'var(--primary)' }}>{showFrontMatterForm ? '▲ Hide Fields' : '▼ Configure Front-Matter'}</span>
+            </button>
+
+            {showFrontMatterForm && (
+              <div className="glass-panel animate-fade" style={{ padding: '14px', marginTop: '8px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', background: 'rgba(0,0,0,0.3)' }}>
+                <div>
+                  <label className="label" style={{ fontSize: '11px', marginBottom: '4px', display: 'block' }}>Dedication (Italicized Page):</label>
+                  <textarea
+                    value={dedication}
+                    onChange={(e) => setDedication(e.target.value)}
+                    className="input"
+                    rows={2}
+                    placeholder="For dreamers and stargazers..."
+                    style={{ width: '100%', fontSize: '12px', resize: 'vertical' }}
+                  />
+                </div>
+
+                <div>
+                  <label className="label" style={{ fontSize: '11px', marginBottom: '4px', display: 'block' }}>Copyright & ISBN Notice:</label>
+                  <textarea
+                    value={copyrightNotice}
+                    onChange={(e) => setCopyrightNotice(e.target.value)}
+                    className="input"
+                    rows={2}
+                    placeholder="Copyright © 2026 Author Name. All rights reserved."
+                    style={{ width: '100%', fontSize: '12px', resize: 'vertical' }}
+                  />
+                </div>
+
+                <div style={{ gridColumn: 'span 2' }}>
+                  <label className="label" style={{ fontSize: '11px', marginBottom: '4px', display: 'block' }}>Acknowledgments (Back-Matter Section):</label>
+                  <textarea
+                    value={acknowledgments}
+                    onChange={(e) => setAcknowledgments(e.target.value)}
+                    className="input"
+                    rows={2}
+                    placeholder="Special thanks to readers, beta editors, and family..."
+                    style={{ width: '100%', fontSize: '12px', resize: 'vertical' }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
 

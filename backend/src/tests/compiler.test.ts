@@ -43,7 +43,7 @@ beforeAll(async () => {
     position: 1
   });
 
-  await request(app).put(`/api/projects/${projectId}/outline/${sceneRes.body.id}/content`).send({
+  await request(app).put(`/api/scenes/${sceneRes.body.id}/content`).send({
     content: 'Captain Valerie adjusted her visor as the sensor console blared. A faint harmonic frequency resonated from the Orion nebula.\n\n"We are not alone," she whispered into the comms.'
   });
 });
@@ -57,14 +57,18 @@ afterAll(async () => {
 });
 
 describe('Native Book Compiler API (/api/projects/:id/export)', () => {
-  it('should compile an EPUB 3 e-book package successfully', async () => {
+  it('should compile an EPUB 3 e-book package with front-matter successfully', async () => {
     const { app } = await import('../index');
     const res = await request(app)
       .post(`/api/projects/${projectId}/export/epub`)
       .send({
         theme: 'classic',
         publisher: 'Starlight Press',
-        language: 'en'
+        isbn: '978-1-23456-789-0',
+        language: 'en',
+        dedication: 'Dedicated to stargazers and adventurers.',
+        copyrightNotice: 'Copyright © 2026 E. P. Buchhalt.',
+        acknowledgments: 'Special thanks to the OpenCrafter community.'
       })
       .responseType('blob');
 
@@ -79,13 +83,15 @@ describe('Native Book Compiler API (/api/projects/:id/export)', () => {
     expect(buffer[1]).toBe(0x4b);
   });
 
-  it('should compile a Microsoft Word (.docx) manuscript successfully', async () => {
+  it('should compile a Microsoft Word (.docx) manuscript with front-matter successfully', async () => {
     const { app } = await import('../index');
     const res = await request(app)
       .post(`/api/projects/${projectId}/export/docx`)
       .send({
         format: 'standard_manuscript',
-        includeTitlePage: true
+        includeTitlePage: true,
+        dedication: 'For dreamers everywhere.',
+        acknowledgments: 'Heartfelt thanks to readers.'
       })
       .responseType('blob');
 

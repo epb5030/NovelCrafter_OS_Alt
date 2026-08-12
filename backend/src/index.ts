@@ -443,8 +443,12 @@ app.all('/api/projects/:projectId/export/epub', async (req, res) => {
     CompilerService.compileEpub(res, project, author, chapters, {
       theme: options.theme || 'classic',
       publisher: options.publisher || 'OpenCrafter Studio',
+      isbn: options.isbn,
       language: options.language || 'en',
-      includeToc: options.includeToc !== false
+      includeToc: options.includeToc !== false,
+      dedication: options.dedication,
+      copyrightNotice: options.copyrightNotice,
+      acknowledgments: options.acknowledgments
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -461,7 +465,10 @@ app.all('/api/projects/:projectId/export/docx', async (req, res) => {
     CompilerService.compileDocx(res, project, author, chapters, {
       format: options.format || 'standard_manuscript',
       includeTitlePage: options.includeTitlePage !== 'false' && options.includeTitlePage !== false,
-      fontFamily: options.fontFamily || 'Times New Roman'
+      fontFamily: options.fontFamily || 'Times New Roman',
+      dedication: options.dedication,
+      copyrightNotice: options.copyrightNotice,
+      acknowledgments: options.acknowledgments
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });

@@ -14,7 +14,7 @@ function escapeXml(unsafe) {
 }
 class CompilerService {
     /**
-     * Compiles and streams a valid EPUB 3 e-book file
+     * Compiles and streams a valid EPUB 3 e-book file with optional front-matter
      */
     static compileEpub(res, project, author, chapters, options = {}) {
         const slug = (project.title || 'manuscript').replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -75,6 +75,19 @@ p.first-p {
 .title-page h1 { font-size: 2.4em; margin-bottom: 0.2em; }
 .title-page .author { font-size: 1.3em; color: #444; margin-top: 1.5em; }
 .title-page .genre { font-size: 0.9em; color: #777; margin-top: 0.5em; text-transform: uppercase; letter-spacing: 1px; }
+.front-matter {
+  padding-top: 20%;
+  text-align: center;
+  font-style: italic;
+  line-height: 1.8;
+}
+.copyright-page {
+  padding-top: 20%;
+  font-size: 0.85em;
+  line-height: 1.6;
+  text-align: center;
+  color: #444;
+}
 `;
         archive.append(stylesheet, { name: 'OEBPS/style.css' });
         // 3. Title Page XHTML
@@ -95,7 +108,6 @@ p.first-p {
 </body>
 </html>`;
         archive.append(titlePageXhtml, { name: 'OEBPS/titlepage.xhtml' });
-        // 4. Chapter XHTML Files
         const manifestItems = [
             '<item id="style" href="style.css" media-type="text/css"/>',
             '<item id="titlepage" href="titlepage.xhtml" media-type="application/xhtml+xml"/>',
@@ -104,7 +116,50 @@ p.first-p {
         const spineItems = [
             '<itemref idref="titlepage"/>'
         ];
-        const tocNavItems = [];
+        const tocNavItems = [
+            '<li><a href="titlepage.xhtml">Title Page</a></li>'
+        ];
+        // Optional Front-Matter: Dedication
+        if (options.dedication && options.dedication.trim()) {
+            const dedicationXhtml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${options.language || 'en'}">
+<head>
+  <title>Dedication</title>
+  <link rel="stylesheet" type="text/css" href="style.css"/>
+</head>
+<body>
+  <div class="front-matter">
+    <p class="first-p">${escapeXml(options.dedication.trim())}</p>
+  </div>
+</body>
+</html>`;
+            archive.append(dedicationXhtml, { name: 'OEBPS/dedication.xhtml' });
+            manifestItems.push('<item id="dedication" href="dedication.xhtml" media-type="application/xhtml+xml"/>');
+            spineItems.push('<itemref idref="dedication"/>');
+            tocNavItems.push('<li><a href="dedication.xhtml">Dedication</a></li>');
+        }
+        // Optional Front-Matter: Copyright Page
+        const copyrightNotice = options.copyrightNotice || `Copyright © ${new Date().getFullYear()} by ${author.pen_name || 'Author'}.\nAll rights reserved.`;
+        const copyrightXhtml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${options.language || 'en'}">
+<head>
+  <title>Copyright</title>
+  <link rel="stylesheet" type="text/css" href="style.css"/>
+</head>
+<body>
+  <div class="copyright-page">
+    ${copyrightNotice.split('\n').map(l => `<p class="first-p">${escapeXml(l.trim())}</p>`).join('\n')}
+    ${options.isbn ? `<p class="first-p" style="margin-top: 1.5em;">ISBN: ${escapeXml(options.isbn)}</p>` : ''}
+    ${options.publisher ? `<p class="first-p">Published by ${escapeXml(options.publisher)}</p>` : ''}
+  </div>
+</body>
+</html>`;
+        archive.append(copyrightXhtml, { name: 'OEBPS/copyright.xhtml' });
+        manifestItems.push('<item id="copyright" href="copyright.xhtml" media-type="application/xhtml+xml"/>');
+        spineItems.push('<itemref idref="copyright"/>');
+        // 4. Chapter XHTML Files
         let chapterIndex = 1;
         for (const chap of chapters) {
             const chapId = `chapter_${chapterIndex}`;
@@ -149,6 +204,25 @@ p.first-p {
             tocNavItems.push(`<li><a href="${chapFileName}">${escapeXml(chap.title)}</a></li>`);
             chapterIndex++;
         }
+        // Optional Back-Matter: Acknowledgments
+        if (options.acknowledgments && options.acknowledgments.trim()) {
+            const ackXhtml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${options.language || 'en'}">
+<head>
+  <title>Acknowledgments</title>
+  <link rel="stylesheet" type="text/css" href="style.css"/>
+</head>
+<body>
+  <h1>Acknowledgments</h1>
+  ${options.acknowledgments.split(/\n\n+/).map(p => `<p class="first-p">${escapeXml(p.trim())}</p>`).join('\n')}
+</body>
+</html>`;
+            archive.append(ackXhtml, { name: 'OEBPS/acknowledgments.xhtml' });
+            manifestItems.push('<item id="acknowledgments" href="acknowledgments.xhtml" media-type="application/xhtml+xml"/>');
+            spineItems.push('<itemref idref="acknowledgments"/>');
+            tocNavItems.push('<li><a href="acknowledgments.xhtml">Acknowledgments</a></li>');
+        }
         // 5. Navigation Document (nav.xhtml)
         const navXhtml = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
@@ -161,7 +235,6 @@ p.first-p {
   <nav epub:type="toc" id="toc">
     <h1>Table of Contents</h1>
     <ol>
-      <li><a href="titlepage.xhtml">Title Page</a></li>
       ${tocNavItems.join('\n      ')}
     </ol>
   </nav>
@@ -225,11 +298,11 @@ p.first-p {
         res.setHeader('Content-Disposition', `attachment; filename="${slug}.docx"`);
         const archive = new ZipArchive({ zlib: { level: 9 } });
         archive.pipe(res);
-        // Calculate approximate total word count
+        // Compute Word Count stats across all scenes
         let totalWords = 0;
-        chapters.forEach(c => {
-            c.scenes.forEach(s => {
-                const words = (s.content || '').trim().split(/\s+/).filter(Boolean).length;
+        chapters.forEach(chap => {
+            chap.scenes.forEach(scene => {
+                const words = (scene.content || '').trim() ? scene.content.trim().split(/\s+/).length : 0;
                 totalWords += words;
             });
         });
@@ -262,11 +335,9 @@ p.first-p {
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:docDefaults>
     <w:rPrDefault>
-      <w:rPr>
-        <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}" w:cs="${fontFamily}"/>
-        <w:sz w:val="24"/>
-        <w:szCs w:val="24"/>
-      </w:rPr>
+      <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}" w:cs="${fontFamily}"/>
+      <w:sz w:val="24"/>
+      <w:szCs w:val="24"/>
     </w:rPrDefault>
   </w:docDefaults>
   <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
@@ -317,6 +388,16 @@ p.first-p {
       <w:p><w:r><w:br w:type="page"/></w:r></w:p>
 `;
         }
+        // Optional Front-Matter: Dedication in DOCX
+        if (options.dedication && options.dedication.trim()) {
+            docBody += `
+      <w:p>
+        <w:pPr><w:spacing w:before="2880" ${lineSpacing}/><w:jc w:val="center"/><w:ind w:firstLine="0"/></w:pPr>
+        <w:r><w:rPr><w:i/></w:rPr><w:t>${escapeXml(options.dedication.trim())}</w:t></w:r>
+      </w:p>
+      <w:p><w:r><w:br w:type="page"/></w:r></w:p>
+`;
+        }
         // Chapters and Scenes
         chapters.forEach((chap, cIdx) => {
             // Page break before subsequent chapters
@@ -350,6 +431,20 @@ p.first-p {
                 });
             });
         });
+        // Optional Back-Matter: Acknowledgments in DOCX
+        if (options.acknowledgments && options.acknowledgments.trim()) {
+            docBody += `
+      <w:p><w:r><w:br w:type="page"/></w:r></w:p>
+      <w:p>
+        <w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+        <w:r><w:t>Acknowledgments</w:t></w:r>
+      </w:p>
+      <w:p>
+        <w:pPr><w:pStyle w:val="Normal"/></w:pPr>
+        <w:r><w:t xml:space="preserve">${escapeXml(options.acknowledgments.trim())}</w:t></w:r>
+      </w:p>
+`;
+        }
         const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
