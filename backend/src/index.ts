@@ -662,6 +662,36 @@ app.post('/api/projects/:projectId/codex', async (req, res) => {
   }
 });
 
+// Batch update Codex 2D graph layout coordinates
+app.put('/api/projects/:projectId/codex/graph-positions', async (req, res) => {
+  const { projectId } = req.params;
+  const { positions } = req.body;
+
+  if (!positions || typeof positions !== 'object') {
+    return res.status(400).json({ error: 'positions object is required' });
+  }
+
+  try {
+    const db = await getDatabase();
+    for (const [entryIdStr, coords] of Object.entries(positions)) {
+      const entryId = parseInt(entryIdStr, 10);
+      const { x, y } = coords as { x: number; y: number };
+      if (!isNaN(entryId) && typeof x === 'number' && typeof y === 'number') {
+        await db.run(
+          'UPDATE codex_entries SET pos_x = ?, pos_y = ? WHERE id = ? AND project_id = ?',
+          x,
+          y,
+          entryId,
+          projectId
+        );
+      }
+    }
+    res.json({ success: true, message: 'Graph positions saved successfully' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Update Codex Entry
 app.put('/api/projects/:projectId/codex/:id', async (req, res) => {
   const { name, aliases, category, description, notes } = req.body;

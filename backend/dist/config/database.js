@@ -244,6 +244,14 @@ async function initializeSchema(db) {
         await db.exec("ALTER TABLE codex_entries ADD COLUMN pace_cadence TEXT DEFAULT 'balanced'");
     }
     catch (_) { }
+    try {
+        await db.exec('ALTER TABLE codex_entries ADD COLUMN pos_x REAL');
+    }
+    catch (_) { }
+    try {
+        await db.exec('ALTER TABLE codex_entries ADD COLUMN pos_y REAL');
+    }
+    catch (_) { }
     // Seed default author profile if none exist
     const existingAuthor = await db.get('SELECT id FROM author_profiles LIMIT 1');
     if (!existingAuthor) {

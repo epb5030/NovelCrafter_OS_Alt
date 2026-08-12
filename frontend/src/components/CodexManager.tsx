@@ -10,7 +10,10 @@ import {
   Network, 
   LayoutGrid, 
   Link2, 
-  X
+  X,
+  Save,
+  Filter,
+  CheckCircle2
 } from 'lucide-react';
 
 export interface CodexEntry {
@@ -25,6 +28,8 @@ export interface CodexEntry {
   catchphrases?: string;
   formality_level?: number;
   pace_cadence?: string;
+  pos_x?: number;
+  pos_y?: number;
   created_at: string;
   updated_at: string;
 }
@@ -86,6 +91,9 @@ export const CodexManager: React.FC<CodexManagerProps> = ({ projectId, apiBase }
   // Graph drag node positions
   const [nodePositions, setNodePositions] = useState<Record<number, NodePosition>>({});
   const [draggedNodeId, setDraggedNodeId] = useState<number | null>(null);
+  const [filterRelType, setFilterRelType] = useState<string>('all');
+  const [savingGraph, setSavingGraph] = useState(false);
+  const [graphSavedMessage, setGraphSavedMessage] = useState(false);
   const graphContainerRef = useRef<HTMLDivElement>(null);
 
   const fetchCodexData = async () => {
@@ -112,6 +120,25 @@ export const CodexManager: React.FC<CodexManagerProps> = ({ projectId, apiBase }
     fetchCodexData();
   }, [projectId]);
 
+  const handleSaveGraphPositions = async () => {
+    setSavingGraph(true);
+    try {
+      const res = await fetch(`${apiBase}/projects/${projectId}/codex/graph-positions`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ positions: nodePositions })
+      });
+      if (res.ok) {
+        setGraphSavedMessage(true);
+        setTimeout(() => setGraphSavedMessage(false), 2500);
+      }
+    } catch (err) {
+      console.error('Failed to save graph layout:', err);
+    } finally {
+      setSavingGraph(false);
+    }
+  };
+
   // Calculate default circular layout positions for nodes
   useEffect(() => {
     if (entries.length === 0) return;
@@ -123,8 +150,9 @@ export const CodexManager: React.FC<CodexManagerProps> = ({ projectId, apiBase }
 
     const initialPositions: Record<number, NodePosition> = {};
     entries.forEach((entry, idx) => {
-      // If position already exists, preserve it
-      if (nodePositions[entry.id]) {
+      if (entry.pos_x != null && entry.pos_y != null) {
+        initialPositions[entry.id] = { x: entry.pos_x, y: entry.pos_y };
+      } else if (nodePositions[entry.id]) {
         initialPositions[entry.id] = nodePositions[entry.id];
       } else {
         const angle = (idx / entries.length) * 2 * Math.PI;
@@ -506,7 +534,7 @@ export const CodexManager: React.FC<CodexManagerProps> = ({ projectId, apiBase }
           onMouseUp={handleMouseUp}
           style={{ 
             width: '100%', 
-            height: '600px', 
+            height: '650px', 
             background: 'radial-gradient(ellipse at center, rgba(30, 27, 75, 0.3) 0%, rgba(10, 10, 15, 0.95) 100%)',
             border: '1px solid var(--border-light)',
             borderRadius: '12px',
@@ -515,6 +543,65 @@ export const CodexManager: React.FC<CodexManagerProps> = ({ projectId, apiBase }
             userSelect: 'none'
           }}
         >
+          {/* Graph Controls Overlay Bar */}
+          <div 
+            style={{ 
+              position: 'absolute', 
+              top: '12px', 
+              left: '12px', 
+              right: '12px', 
+              zIndex: 20, 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              background: 'rgba(15, 15, 25, 0.85)', 
+              backdropFilter: 'blur(8px)',
+              padding: '10px 14px', 
+              borderRadius: '8px', 
+              border: '1px solid var(--border-light)' 
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                <Filter size={14} style={{ color: 'var(--primary)' }} />
+                <span>Relationship Type:</span>
+              </div>
+              <select
+                value={filterRelType}
+                onChange={(e) => setFilterRelType(e.target.value)}
+                className="input"
+                style={{ padding: '4px 8px', fontSize: '12px', width: '140px' }}
+              >
+                <option value="all">All Relationships</option>
+                <option value="ally">Ally</option>
+                <option value="enemy">Enemy</option>
+                <option value="rival">Rival</option>
+                <option value="family">Family</option>
+                <option value="located_in">Located In</option>
+                <option value="owns">Owns</option>
+                <option value="member_of">Member Of</option>
+                <option value="associated">Associated</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {graphSavedMessage && (
+                <span style={{ fontSize: '12px', color: 'var(--status-done)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <CheckCircle2 size={14} /> Layout Saved!
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={handleSaveGraphPositions}
+                disabled={savingGraph}
+                className="btn btn-primary"
+                style={{ padding: '6px 12px', fontSize: '12px', gap: '6px' }}
+              >
+                <Save size={14} /> {savingGraph ? 'Saving Layout...' : 'Save 2D Graph Layout'}
+              </button>
+            </div>
+          </div>
+
           {/* SVG Canvas for Relationship Lines */}
           <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
             <defs>
@@ -524,54 +611,60 @@ export const CodexManager: React.FC<CodexManagerProps> = ({ projectId, apiBase }
               </linearGradient>
             </defs>
 
-            {relationships.map(rel => {
-              const sourcePos = nodePositions[rel.source_id];
-              const targetPos = nodePositions[rel.target_id];
-              if (!sourcePos || !targetPos) return null;
+            {relationships
+              .filter(rel => filterRelType === 'all' || rel.relationship_type === filterRelType)
+              .map(rel => {
+                const sourcePos = nodePositions[rel.source_id];
+                const targetPos = nodePositions[rel.target_id];
+                if (!sourcePos || !targetPos) return null;
 
-              const midX = (sourcePos.x + targetPos.x) / 2;
-              const midY = (sourcePos.y + targetPos.y) / 2;
+                const midX = (sourcePos.x + targetPos.x) / 2;
+                const midY = (sourcePos.y + targetPos.y) / 2;
 
-              return (
-                <g key={rel.id}>
-                  <line
-                    x1={sourcePos.x}
-                    y1={sourcePos.y}
-                    x2={targetPos.x}
-                    y2={targetPos.y}
-                    stroke="url(#edgeGradient)"
-                    strokeWidth="2"
-                    strokeDasharray="4 2"
-                  />
-                  {/* Connection Label Pill */}
-                  <rect
-                    x={midX - 35}
-                    y={midY - 10}
-                    width="70"
-                    height="20"
-                    rx="10"
-                    fill="rgba(15, 15, 25, 0.9)"
-                    stroke="rgba(129, 140, 248, 0.3)"
-                  />
-                  <text
-                    x={midX}
-                    y={midY + 4}
-                    fill="#c7d2fe"
-                    fontSize="10"
-                    textAnchor="middle"
-                    fontWeight="600"
-                  >
-                    {rel.relationship_type.replace('_', ' ')}
-                  </text>
-                </g>
-              );
-            })}
+                return (
+                  <g key={rel.id}>
+                    <line
+                      x1={sourcePos.x}
+                      y1={sourcePos.y}
+                      x2={targetPos.x}
+                      y2={targetPos.y}
+                      stroke="url(#edgeGradient)"
+                      strokeWidth="2"
+                      strokeDasharray="4 2"
+                    />
+                    {/* Connection Label Pill */}
+                    <rect
+                      x={midX - 35}
+                      y={midY - 10}
+                      width="70"
+                      height="20"
+                      rx="10"
+                      fill="rgba(15, 15, 25, 0.9)"
+                      stroke="rgba(129, 140, 248, 0.3)"
+                    />
+                    <text
+                      x={midX}
+                      y={midY + 4}
+                      fill="#c7d2fe"
+                      fontSize="10"
+                      textAnchor="middle"
+                      fontWeight="600"
+                    >
+                      {rel.relationship_type.replace('_', ' ')}
+                    </text>
+                  </g>
+                );
+              })}
           </svg>
 
           {/* Interactive Entity Nodes */}
-          {entries.map(entry => {
+          {filteredEntries.map(entry => {
             const pos = nodePositions[entry.id] || { x: 100, y: 100 };
             const isDragging = draggedNodeId === entry.id;
+            const isHighlighted = search.trim() !== '' && (
+              entry.name.toLowerCase().includes(search.toLowerCase()) ||
+              (entry.aliases && entry.aliases.toLowerCase().includes(search.toLowerCase()))
+            );
 
             return (
               <div
@@ -585,15 +678,21 @@ export const CodexManager: React.FC<CodexManagerProps> = ({ projectId, apiBase }
                   transform: 'translate(-50%, -50%)',
                   padding: '8px 14px',
                   borderRadius: '20px',
-                  background: 'rgba(20, 20, 32, 0.95)',
-                  border: `2px solid ${getCategoryColor(entry.category)}`,
-                  boxShadow: isDragging ? '0 0 20px rgba(129, 140, 248, 0.6)' : '0 4px 15px rgba(0,0,0,0.5)',
+                  background: isDragging ? 'rgba(30, 27, 75, 0.95)' : 'rgba(20, 20, 32, 0.95)',
+                  border: isHighlighted
+                    ? '2px solid #38bdf8'
+                    : `2px solid ${getCategoryColor(entry.category)}`,
+                  boxShadow: isHighlighted
+                    ? '0 0 16px rgba(56, 189, 248, 0.8)'
+                    : isDragging
+                    ? '0 0 20px rgba(129, 140, 248, 0.6)'
+                    : '0 4px 15px rgba(0,0,0,0.5)',
                   cursor: isDragging ? 'grabbing' : 'grab',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
-                  zIndex: isDragging ? 10 : 2,
-                  transition: isDragging ? 'none' : 'box-shadow 0.2s ease'
+                  zIndex: isDragging ? 30 : 10,
+                  transition: isDragging ? 'none' : 'border 0.2s, box-shadow 0.2s'
                 }}
               >
                 {getCategoryIcon(entry.category, 14)}
