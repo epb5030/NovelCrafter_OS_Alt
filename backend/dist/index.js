@@ -9,6 +9,7 @@ const cors_1 = __importDefault(require("cors"));
 const database_1 = require("./config/database");
 const ai_service_1 = require("./services/ai.service");
 const compiler_service_1 = require("./services/compiler.service");
+const sampleTemplate_service_1 = require("./services/sampleTemplate.service");
 const path_1 = __importDefault(require("path"));
 const app = (0, express_1.default)();
 exports.app = app;
@@ -60,6 +61,18 @@ app.post('/api/projects', async (req, res) => {
         const result = await db.run('INSERT INTO projects (title, summary, genre) VALUES (?, ?, ?)', title, summary || '', genre || '');
         const newProject = await db.get('SELECT * FROM projects WHERE id = ?', result.lastID);
         res.status(201).json(newProject);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Create pre-populated sample novel project (Quickstart Demo)
+app.post('/api/projects/sample-template', async (req, res) => {
+    try {
+        const projectId = await sampleTemplate_service_1.SampleTemplateService.createSampleProject();
+        const db = await (0, database_1.getDatabase)();
+        const project = await db.get('SELECT * FROM projects WHERE id = ?', projectId);
+        res.status(201).json(project);
     }
     catch (error) {
         res.status(500).json({ error: error.message });

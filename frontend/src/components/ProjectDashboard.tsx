@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, FolderOpen, Trash2, Download, Upload, Book, Settings as SettingsIcon } from 'lucide-react';
+import { Plus, FolderOpen, Trash2, Download, Upload, Book, Settings as SettingsIcon, Sparkles } from 'lucide-react';
 import type { AuthorProfile } from './AccountModal';
 
 export interface Project {
@@ -31,6 +31,7 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   const [genre, setGenre] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
 
   const fetchProjects = async () => {
     try {
@@ -43,6 +44,23 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
       setError(err.message || 'Error loading projects');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCreateSampleTemplate = async () => {
+    try {
+      setCreatingTemplate(true);
+      const res = await fetch(`${apiBase}/projects/sample-template`, {
+        method: 'POST'
+      });
+      if (!res.ok) throw new Error('Failed to create sample template');
+      const newProj = await res.json();
+      setProjects(prev => [newProj, ...prev]);
+      onSelectProject(newProj.id);
+    } catch (err: any) {
+      setError(err.message || 'Error initializing sample project');
+    } finally {
+      setCreatingTemplate(false);
     }
   };
 
@@ -220,6 +238,23 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
               <SettingsIcon size={13} style={{ color: 'var(--text-muted)' }} />
             </button>
           )}
+
+          {/* Quickstart Demo Template Button */}
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={handleCreateSampleTemplate}
+            disabled={creatingTemplate}
+            style={{ 
+              padding: '10px 16px', 
+              border: '1px solid var(--primary)', 
+              color: 'var(--primary)',
+              background: 'rgba(200, 157, 84, 0.1)' 
+            }}
+            title="Instantly generate pre-populated Fantasy Novel (Codex, Cartography, Plot Matrix, Manuscript)"
+          >
+            <Sparkles size={16} /> {creatingTemplate ? 'Initializing Demo...' : '⚡ Quickstart Demo Project'}
+          </button>
 
           {/* Import Button */}
           <label 

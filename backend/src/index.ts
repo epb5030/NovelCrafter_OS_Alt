@@ -3,6 +3,7 @@ import cors from 'cors';
 import { getDatabase } from './config/database';
 import { AIService } from './services/ai.service';
 import { CompilerService } from './services/compiler.service';
+import { SampleTemplateService } from './services/sampleTemplate.service';
 import path from 'path';
 
 const app = express();
@@ -62,6 +63,18 @@ app.post('/api/projects', async (req, res) => {
     );
     const newProject = await db.get('SELECT * FROM projects WHERE id = ?', result.lastID);
     res.status(201).json(newProject);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create pre-populated sample novel project (Quickstart Demo)
+app.post('/api/projects/sample-template', async (req, res) => {
+  try {
+    const projectId = await SampleTemplateService.createSampleProject();
+    const db = await getDatabase();
+    const project = await db.get('SELECT * FROM projects WHERE id = ?', projectId);
+    res.status(201).json(project);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
