@@ -42,7 +42,8 @@ export const Layout: React.FC<LayoutProps> = ({
   const menuItems = [
     { id: 'write', label: 'Write', icon: BookOpen },
     { id: 'outline', label: 'Outline', icon: Map },
-    { id: 'matrix', label: 'Plot Matrix', icon: LayoutGrid },
+    { id: 'corkboard', label: 'Corkboard', icon: LayoutGrid },
+    { id: 'matrix', label: 'Plot Matrix', icon: Sparkles },
     { id: 'timeline', label: 'Timeline', icon: Clock },
     { id: 'map', label: 'World Map', icon: Compass },
     { id: 'codex', label: 'Codex', icon: Database },

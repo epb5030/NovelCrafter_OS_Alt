@@ -775,6 +775,32 @@ app.post('/api/projects/:projectId/outline', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+// Batch update outline element positions (e.g. for Corkboard / Storyboard Reordering)
+app.put('/api/projects/:projectId/outline/positions', async (req, res) => {
+    const { projectId } = req.params;
+    const { positions } = req.body;
+    if (!Array.isArray(positions)) {
+        return res.status(400).json({ error: 'positions must be an array' });
+    }
+    try {
+        const db = await (0, database_1.getDatabase)();
+        for (const item of positions) {
+            if (item.id && typeof item.position === 'number') {
+                if (item.parent_id !== undefined) {
+                    await db.run('UPDATE outline_elements SET position = ?, parent_id = ? WHERE id = ? AND project_id = ?', item.position, item.parent_id, item.id, projectId);
+                }
+                else {
+                    await db.run('UPDATE outline_elements SET position = ? WHERE id = ? AND project_id = ?', item.position, item.id, projectId);
+                }
+            }
+        }
+        await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', projectId);
+        res.json({ success: true, message: 'Outline positions updated successfully.' });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 // Update Outline Element
 app.put('/api/projects/:projectId/outline/:id', async (req, res) => {
     const { parent_id, title, position, summary, status, metadata } = req.body;

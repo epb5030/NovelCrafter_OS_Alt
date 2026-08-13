@@ -4,6 +4,7 @@ import type { Project } from './components/ProjectDashboard';
 import { Layout } from './components/Layout';
 import { WriteEditor } from './components/WriteEditor';
 import { OutlinePlanner } from './components/OutlinePlanner';
+import { CorkboardStudio } from './components/CorkboardStudio';
 import { CodexManager } from './components/CodexManager';
 import { PlotMatrix } from './components/PlotMatrix';
 import { TimelineStudio } from './components/TimelineStudio';
@@ -131,6 +132,14 @@ function App() {
           <OutlinePlanner 
             projectId={activeProjectId} 
             apiBase={API_BASE} 
+          />
+        );
+      case 'corkboard':
+        return (
+          <CorkboardStudio
+            projectId={activeProjectId}
+            apiBase={API_BASE}
+            onOpenSceneInEditor={() => setActiveTab('write')}
           />
         );
       case 'matrix':
