@@ -13,7 +13,9 @@ import {
   Wand2,
   Sliders,
   Play,
-  Terminal
+  Terminal,
+  Key,
+  Sparkles
 } from 'lucide-react';
 import type { ThemeType } from '../App';
 
@@ -324,7 +326,46 @@ export const Settings: React.FC<SettingsProps> = ({
           </div>
         </div>
 
-        {/* Ollama Local / Cloud Settings */}
+        {/* Ollama Local Settings */}
+        {activeProvider === 'ollama' && (
+          <div className="glass-panel" style={{ padding: '20px', border: '1px solid var(--border-light)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+              <Cpu size={18} style={{ color: 'var(--primary)' }} />
+              <div>
+                <h3 style={{ color: '#ffffff', fontSize: '16px' }}>Ollama Local Host Settings</h3>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Runs completely offline on your local machine.
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <label className="label">Ollama Host URL</label>
+                <input 
+                  type="url" 
+                  value={settings.ollama_url || 'http://localhost:11434'} 
+                  onChange={(e) => updateSetting('ollama_url', e.target.value)} 
+                  className="input" 
+                  placeholder="http://localhost:11434" 
+                />
+              </div>
+
+              <div>
+                <label className="label">Local Model Tag</label>
+                <input 
+                  type="text" 
+                  value={settings.ollama_model || 'llama3'} 
+                  onChange={(e) => updateSetting('ollama_model', e.target.value)} 
+                  className="input" 
+                  placeholder="e.g. llama3, mistral, qwen2.5:14b, deepseek-r1:8b" 
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Ollama Cloud Settings */}
         {activeProvider === 'ollama_cloud' && (
           <div className="glass-panel" style={{ padding: '20px', border: '1px solid var(--border-light)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
@@ -332,7 +373,7 @@ export const Settings: React.FC<SettingsProps> = ({
               <div>
                 <h3 style={{ color: '#ffffff', fontSize: '16px' }}>Ollama Cloud / Remote GPU Host Settings</h3>
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                  Connect to high-memory remote GPUs running 70B+ models.
+                  Connect to high-memory remote GPUs (RunPod, Vast.ai, ngrok tunnel, etc.) running 70B+ models.
                 </span>
               </div>
             </div>
@@ -373,6 +414,186 @@ export const Settings: React.FC<SettingsProps> = ({
                     placeholder="e.g. 16384, 32768, 65536" 
                   />
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Google Gemini Settings */}
+        {activeProvider === 'gemini' && (
+          <div className="glass-panel" style={{ padding: '20px', border: '1px solid var(--border-light)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+              <Sparkles size={18} style={{ color: '#38bdf8' }} />
+              <div>
+                <h3 style={{ color: '#ffffff', fontSize: '16px' }}>Google Gemini Configuration</h3>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Ultra-fast, massive context window (1M+ tokens) for expansive novel architecture.
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label className="label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Key size={12} style={{ color: 'var(--primary)' }} /> Gemini API Key
+                </label>
+                <input 
+                  type="password" 
+                  value={settings.gemini_api_key || ''} 
+                  onChange={(e) => updateSetting('gemini_api_key', e.target.value)} 
+                  className="input" 
+                  placeholder="AIzaSy..." 
+                  autoComplete="off"
+                />
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                  Get your free API key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" style={{ color: 'var(--primary)' }}>Google AI Studio</a>. Keys are encrypted with AES-256-GCM.
+                </span>
+              </div>
+
+              <div>
+                <label className="label">Gemini Model</label>
+                <input 
+                  type="text" 
+                  value={settings.gemini_model || 'gemini-2.0-flash'} 
+                  onChange={(e) => updateSetting('gemini_model', e.target.value)} 
+                  className="input" 
+                  placeholder="e.g. gemini-2.0-flash, gemini-1.5-pro, gemini-1.5-flash" 
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* OpenAI Settings */}
+        {activeProvider === 'openai' && (
+          <div className="glass-panel" style={{ padding: '20px', border: '1px solid var(--border-light)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+              <Cpu size={18} style={{ color: 'var(--primary)' }} />
+              <div>
+                <h3 style={{ color: '#ffffff', fontSize: '16px' }}>OpenAI Configuration</h3>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Direct integration with GPT-4o, GPT-4o-mini, and reasoning models.
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label className="label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Key size={12} style={{ color: 'var(--primary)' }} /> OpenAI API Key
+                </label>
+                <input 
+                  type="password" 
+                  value={settings.openai_api_key || ''} 
+                  onChange={(e) => updateSetting('openai_api_key', e.target.value)} 
+                  className="input" 
+                  placeholder="sk-proj-..." 
+                  autoComplete="off"
+                />
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                  Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" style={{ color: 'var(--primary)' }}>platform.openai.com</a>.
+                </span>
+              </div>
+
+              <div>
+                <label className="label">OpenAI Model</label>
+                <input 
+                  type="text" 
+                  value={settings.openai_model || 'gpt-4o-mini'} 
+                  onChange={(e) => updateSetting('openai_model', e.target.value)} 
+                  className="input" 
+                  placeholder="e.g. gpt-4o-mini, gpt-4o, o1-mini" 
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Anthropic Claude Settings */}
+        {activeProvider === 'anthropic' && (
+          <div className="glass-panel" style={{ padding: '20px', border: '1px solid var(--border-light)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+              <Feather size={18} style={{ color: 'var(--primary)' }} />
+              <div>
+                <h3 style={{ color: '#ffffff', fontSize: '16px' }}>Anthropic Claude Configuration</h3>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  State-of-the-art literary prose, nuance, and dialogue mastery with Claude 3.5 Sonnet.
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label className="label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Key size={12} style={{ color: 'var(--primary)' }} /> Anthropic API Key
+                </label>
+                <input 
+                  type="password" 
+                  value={settings.anthropic_api_key || ''} 
+                  onChange={(e) => updateSetting('anthropic_api_key', e.target.value)} 
+                  className="input" 
+                  placeholder="sk-ant-..." 
+                  autoComplete="off"
+                />
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                  Get your API key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" style={{ color: 'var(--primary)' }}>Anthropic Console</a>.
+                </span>
+              </div>
+
+              <div>
+                <label className="label">Anthropic Model</label>
+                <input 
+                  type="text" 
+                  value={settings.anthropic_model || 'claude-3-5-sonnet-20240620'} 
+                  onChange={(e) => updateSetting('anthropic_model', e.target.value)} 
+                  className="input" 
+                  placeholder="e.g. claude-3-5-sonnet-20240620, claude-3-haiku-20240307" 
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* OpenRouter Settings */}
+        {activeProvider === 'openrouter' && (
+          <div className="glass-panel" style={{ padding: '20px', border: '1px solid var(--border-light)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+              <Cloud size={18} style={{ color: '#a78bfa' }} />
+              <div>
+                <h3 style={{ color: '#ffffff', fontSize: '16px' }}>OpenRouter Unified Endpoint</h3>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  One key for 200+ models including Llama 3.3, DeepSeek-R1, Mistral Large, and Claude.
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label className="label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Key size={12} style={{ color: 'var(--primary)' }} /> OpenRouter API Key
+                </label>
+                <input 
+                  type="password" 
+                  value={settings.openrouter_api_key || ''} 
+                  onChange={(e) => updateSetting('openrouter_api_key', e.target.value)} 
+                  className="input" 
+                  placeholder="sk-or-v1-..." 
+                  autoComplete="off"
+                />
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                  Get your unified key from <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer" style={{ color: 'var(--primary)' }}>OpenRouter.ai</a>.
+                </span>
+              </div>
+
+              <div>
+                <label className="label">OpenRouter Model String</label>
+                <input 
+                  type="text" 
+                  value={settings.openrouter_model || 'meta-llama/llama-3-8b-instruct:free'} 
+                  onChange={(e) => updateSetting('openrouter_model', e.target.value)} 
+                  className="input" 
+                  placeholder="e.g. meta-llama/llama-3.3-70b-instruct, deepseek/deepseek-r1, anthropic/claude-3.5-sonnet" 
+                />
               </div>
             </div>
           </div>
