@@ -179,6 +179,23 @@ async function initializeSchema(db: Database) {
     )
   `);
 
+  // Subplots & Story Threading Table
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS subplots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      category TEXT DEFAULT 'main_quest',
+      status TEXT DEFAULT 'introduced',
+      summary TEXT,
+      unresolved_hook INTEGER DEFAULT 1,
+      target_scene_id INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY(target_scene_id) REFERENCES outline_elements(id) ON DELETE SET NULL
+    )
+  `);
+
   // Author Profiles Table for Multi-Account / Pen Names and Global Author Profile
   await db.exec(`
     CREATE TABLE IF NOT EXISTS author_profiles (

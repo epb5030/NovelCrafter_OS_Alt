@@ -2869,6 +2869,103 @@ app.post('/api/projects/:projectId/map/auto-populate', async (req, res) => {
 });
 
 // ==========================================
+// 11. SUBPLOTS & STORY THREADING API
+// ==========================================
+
+// Get all subplots for project
+app.get('/api/projects/:projectId/subplots', async (req, res) => {
+  const { projectId } = req.params;
+  try {
+    const db = await getDatabase();
+    const subplots = await db.all(`
+      SELECT s.*, o.title as target_scene_title
+      FROM subplots s
+      LEFT JOIN outline_elements o ON s.target_scene_id = o.id
+      WHERE s.project_id = ?
+      ORDER BY s.id ASC
+    `, projectId);
+    res.json(subplots);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create new subplot
+app.post('/api/projects/:projectId/subplots', async (req, res) => {
+  const { projectId } = req.params;
+  const { title, category, status, summary, unresolvedHook, targetSceneId } = req.body;
+
+  if (!title) {
+    return res.status(400).json({ error: 'Title is required for subplot' });
+  }
+
+  try {
+    const db = await getDatabase();
+    const result = await db.run(`
+      INSERT INTO subplots (project_id, title, category, status, summary, unresolved_hook, target_scene_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, projectId, title.trim(), category || 'main_quest', status || 'introduced', summary || '', unresolvedHook !== undefined ? (unresolvedHook ? 1 : 0) : 1, targetSceneId || null);
+
+    const created = await db.get(`
+      SELECT s.*, o.title as target_scene_title
+      FROM subplots s
+      LEFT JOIN outline_elements o ON s.target_scene_id = o.id
+      WHERE s.id = ?
+    `, result.lastID);
+
+    await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', projectId);
+    res.status(201).json(created);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update subplot
+app.put('/api/projects/:projectId/subplots/:id', async (req, res) => {
+  const { projectId, id } = req.params;
+  const { title, category, status, summary, unresolvedHook, targetSceneId } = req.body;
+
+  try {
+    const db = await getDatabase();
+    await db.run(`
+      UPDATE subplots
+      SET title = COALESCE(?, title),
+          category = COALESCE(?, category),
+          status = COALESCE(?, status),
+          summary = COALESCE(?, summary),
+          unresolved_hook = COALESCE(?, unresolved_hook),
+          target_scene_id = ?
+      WHERE id = ? AND project_id = ?
+    `, title, category, status, summary, unresolvedHook !== undefined ? (unresolvedHook ? 1 : 0) : null, targetSceneId || null, id, projectId);
+
+    const updated = await db.get(`
+      SELECT s.*, o.title as target_scene_title
+      FROM subplots s
+      LEFT JOIN outline_elements o ON s.target_scene_id = o.id
+      WHERE s.id = ?
+    `, id);
+
+    await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', projectId);
+    res.json(updated);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete subplot
+app.delete('/api/projects/:projectId/subplots/:id', async (req, res) => {
+  const { projectId, id } = req.params;
+  try {
+    const db = await getDatabase();
+    await db.run('DELETE FROM subplots WHERE id = ? AND project_id = ?', id, projectId);
+    await db.run('UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', projectId);
+    res.json({ message: 'Subplot deleted successfully' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
 // PRODUCTION FRONTEND STATIC SERVING
 // ==========================================
 

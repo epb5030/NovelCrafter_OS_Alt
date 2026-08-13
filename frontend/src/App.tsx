@@ -7,6 +7,7 @@ import { OutlinePlanner } from './components/OutlinePlanner';
 import { CorkboardStudio } from './components/CorkboardStudio';
 import { CodexManager } from './components/CodexManager';
 import { PlotMatrix } from './components/PlotMatrix';
+import { SubplotTracker } from './components/SubplotTracker';
 import { TimelineStudio } from './components/TimelineStudio';
 import { WorldMapStudio } from './components/WorldMapStudio';
 import { Settings } from './components/Settings';
@@ -147,6 +148,14 @@ function App() {
           <PlotMatrix 
             projectId={activeProjectId} 
             apiBase={API_BASE} 
+            onNavigateToScene={() => setActiveTab('write')}
+          />
+        );
+      case 'subplots':
+        return (
+          <SubplotTracker
+            projectId={activeProjectId}
+            apiBase={API_BASE}
             onNavigateToScene={() => setActiveTab('write')}
           />
         );

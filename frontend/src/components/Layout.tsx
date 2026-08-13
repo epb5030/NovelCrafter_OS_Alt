@@ -10,7 +10,8 @@ import {
   Download,
   LayoutGrid,
   Clock,
-  Compass
+  Compass,
+  GitMerge
 } from 'lucide-react';
 import type { AuthorProfile } from './AccountModal';
 
@@ -44,6 +45,7 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'outline', label: 'Outline', icon: Map },
     { id: 'corkboard', label: 'Corkboard', icon: LayoutGrid },
     { id: 'matrix', label: 'Plot Matrix', icon: Sparkles },
+    { id: 'subplots', label: 'Subplots', icon: GitMerge },
     { id: 'timeline', label: 'Timeline', icon: Clock },
     { id: 'map', label: 'World Map', icon: Compass },
     { id: 'codex', label: 'Codex', icon: Database },
