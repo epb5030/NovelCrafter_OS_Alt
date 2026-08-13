@@ -15,7 +15,9 @@ import {
   Milestone, 
   RefreshCw,
   Eye,
-  EyeOff
+  EyeOff,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 export type TimelineTrack = 'main_story' | 'character_backstory' | 'world_history' | 'subplot';
@@ -234,6 +236,59 @@ export const TimelineStudio: React.FC<TimelineStudioProps> = ({
       }
     } catch (err) {
       console.error('Error deleting event:', err);
+    }
+  };
+
+  const handleReorderTimelineEvent = async (eventId: number, direction: 'left' | 'right', currentTrack: TimelineTrack) => {
+    const trackEvents = eventsByTrack[currentTrack];
+    const idx = trackEvents.findIndex(e => e.id === eventId);
+    if (idx === -1) return;
+
+    const targetIdx = direction === 'left' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= trackEvents.length) return;
+
+    const currentEvt = trackEvents[idx];
+    const otherEvt = trackEvents[targetIdx];
+
+    const reordered = [
+      { id: currentEvt.id, orderIndex: otherEvt.order_index, track: currentTrack },
+      { id: otherEvt.id, orderIndex: currentEvt.order_index, track: currentTrack }
+    ];
+
+    try {
+      const res = await fetch(`${apiBase}/projects/${projectId}/timeline/reorder`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: reordered })
+      });
+      if (res.ok) {
+        fetchTimelineData();
+      }
+    } catch (err) {
+      console.error('Failed to reorder timeline event:', err);
+    }
+  };
+
+  const handleTransferTrack = async (eventId: number, newTrack: TimelineTrack) => {
+    const evt = events.find(e => e.id === eventId);
+    if (!evt || evt.track === newTrack) return;
+
+    const targetTrackEvents = eventsByTrack[newTrack];
+    const newOrderIdx = targetTrackEvents.length > 0 ? targetTrackEvents[targetTrackEvents.length - 1].order_index + 1 : 1;
+
+    try {
+      const res = await fetch(`${apiBase}/projects/${projectId}/timeline/reorder`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          events: [{ id: eventId, track: newTrack, orderIndex: newOrderIdx }]
+        })
+      });
+      if (res.ok) {
+        fetchTimelineData();
+      }
+    } catch (err) {
+      console.error('Failed to transfer timeline event track:', err);
     }
   };
 
@@ -594,15 +649,45 @@ export const TimelineStudio: React.FC<TimelineStudioProps> = ({
 
                           {/* Actions Bottom Bar */}
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px', marginTop: '4px' }}>
-                            <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
-                              Pos: {event.order_index}
-                            </span>
-                            <div style={{ display: 'flex', gap: '4px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleReorderTimelineEvent(event.id, 'left', trackKey)}
+                                title="Shift Left in Track"
+                                className="btn btn-secondary"
+                                style={{ padding: '2px 5px', fontSize: '10px' }}
+                              >
+                                <ChevronLeft size={11} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleReorderTimelineEvent(event.id, 'right', trackKey)}
+                                title="Shift Right in Track"
+                                className="btn btn-secondary"
+                                style={{ padding: '2px 5px', fontSize: '10px' }}
+                              >
+                                <ChevronRight size={11} />
+                              </button>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                              <select
+                                value={event.track}
+                                onChange={(e) => handleTransferTrack(event.id, e.target.value as TimelineTrack)}
+                                title="Move to another track"
+                                style={{ fontSize: '9px', padding: '2px 4px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-light)', color: 'var(--text-muted)', borderRadius: '3px' }}
+                              >
+                                <option value="main_story">Main Story</option>
+                                <option value="character_backstory">Backstory</option>
+                                <option value="world_history">World History</option>
+                                <option value="subplot">Subplot</option>
+                              </select>
+
                               <button
                                 type="button"
                                 onClick={() => handleOpenEditModal(event)}
                                 className="btn btn-secondary"
-                                style={{ padding: '3px 6px', fontSize: '10px' }}
+                                style={{ padding: '2px 5px', fontSize: '10px' }}
                                 title="Edit Timeline Event"
                               >
                                 <Edit3 size={11} />
@@ -611,7 +696,7 @@ export const TimelineStudio: React.FC<TimelineStudioProps> = ({
                                 type="button"
                                 onClick={() => handleDeleteEvent(event.id)}
                                 className="btn btn-secondary"
-                                style={{ padding: '3px 6px', fontSize: '10px', color: '#f87171' }}
+                                style={{ padding: '2px 5px', fontSize: '10px', color: '#f87171' }}
                                 title="Delete Event"
                               >
                                 <Trash2 size={11} />

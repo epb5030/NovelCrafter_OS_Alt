@@ -2237,6 +2237,43 @@ app.post('/api/projects/:projectId/timeline', async (req, res) => {
   }
 });
 
+// Batch reorder timeline events or transfer event across tracks
+app.put('/api/projects/:projectId/timeline/reorder', async (req, res) => {
+  const { projectId } = req.params;
+  const { events } = req.body;
+
+  if (!Array.isArray(events)) {
+    return res.status(400).json({ error: 'events must be an array' });
+  }
+
+  try {
+    const db = await getDatabase();
+    for (const item of events) {
+      if (item.id && typeof item.orderIndex === 'number') {
+        if (item.track) {
+          await db.run(
+            'UPDATE timeline_events SET order_index = ?, track = ? WHERE id = ? AND project_id = ?',
+            item.orderIndex,
+            item.track,
+            item.id,
+            projectId
+          );
+        } else {
+          await db.run(
+            'UPDATE timeline_events SET order_index = ? WHERE id = ? AND project_id = ?',
+            item.orderIndex,
+            item.id,
+            projectId
+          );
+        }
+      }
+    }
+    res.json({ success: true, message: 'Timeline event positions reordered successfully' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Update timeline event
 app.put('/api/projects/:projectId/timeline/:id', async (req, res) => {
   const { id } = req.params;
