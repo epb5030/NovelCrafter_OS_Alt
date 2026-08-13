@@ -479,7 +479,7 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
         try {
           const parsed = JSON.parse(dataStr);
           if (parsed.error) throw new Error(parsed.error);
-          if (parsed.text) {
+          if (typeof parsed.text === 'string' && parsed.text !== '') {
             onChunk(parsed.text);
           }
         } catch (err: any) {
@@ -614,9 +614,12 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
     e.preventDefault();
     if (!chatInput.trim() || !activeSceneId || aiLoading) return;
 
-    const userMessage: ChatMessage = { role: 'user', content: chatInput };
-    const initialHistory = [...chatMessages, userMessage];
-    setChatMessages(initialHistory);
+    const userMsgText = chatInput.trim();
+    const userMessage: ChatMessage = { role: 'user', content: userMsgText };
+    const historyToSend = [...chatMessages];
+    const newMessages: ChatMessage[] = [...chatMessages, userMessage, { role: 'assistant', content: '' }];
+
+    setChatMessages(newMessages);
     setChatInput('');
     setAiLoading(true);
     setAiError('');
@@ -628,9 +631,6 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
       ...(styleTone !== 'default' ? { tone: styleTone } : {})
     };
 
-    const assistantIndex = initialHistory.length;
-    setChatMessages(prev => [...prev, { role: 'assistant', content: '' }]);
-
     let accumulatedContent = '';
 
     try {
@@ -638,18 +638,18 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
         {
           sceneId: activeSceneId,
           action: 'chat',
-          prompt: userMessage.content,
-          history: chatMessages,
+          prompt: userMsgText,
+          history: historyToSend,
           styleOverrides
         },
         (chunk) => {
           accumulatedContent += chunk;
           setChatMessages(prev => {
-            const updated = [...prev];
-            if (updated[assistantIndex]) {
-              updated[assistantIndex] = { role: 'assistant', content: accumulatedContent };
+            const next = [...prev];
+            if (next.length > 0 && next[next.length - 1].role === 'assistant') {
+              next[next.length - 1] = { role: 'assistant', content: accumulatedContent };
             }
-            return updated;
+            return next;
           });
         }
       );
