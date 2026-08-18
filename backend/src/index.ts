@@ -917,18 +917,33 @@ app.put('/api/projects/:projectId/outline/:id', async (req, res) => {
 
   try {
     const db = await getDatabase();
-    
-    // Construct dynamic updates based on what was passed
+    const existing = await db.get(
+      'SELECT * FROM outline_elements WHERE id = ? AND project_id = ?',
+      req.params.id,
+      req.params.projectId
+    );
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Outline element not found' });
+    }
+
+    const updatedParentId = parent_id !== undefined ? parent_id : existing.parent_id;
+    const updatedTitle = title !== undefined ? title : existing.title;
+    const updatedPosition = position !== undefined ? position : existing.position;
+    const updatedSummary = summary !== undefined ? summary : existing.summary;
+    const updatedStatus = status !== undefined ? status : existing.status;
+    const updatedMetadata = metadata !== undefined ? metadata : existing.metadata;
+
     await db.run(
       `UPDATE outline_elements 
        SET parent_id = ?, title = ?, position = ?, summary = ?, status = ?, metadata = ? 
        WHERE id = ? AND project_id = ?`,
-      parent_id !== undefined ? parent_id : null,
-      title,
-      position || 0,
-      summary || '',
-      status || 'todo',
-      metadata || '[]',
+      updatedParentId,
+      updatedTitle,
+      updatedPosition,
+      updatedSummary,
+      updatedStatus,
+      updatedMetadata,
       req.params.id,
       req.params.projectId
     );
@@ -2927,16 +2942,24 @@ app.put('/api/projects/:projectId/subplots/:id', async (req, res) => {
 
   try {
     const db = await getDatabase();
+    const existing = await db.get('SELECT * FROM subplots WHERE id = ? AND project_id = ?', id, projectId);
+    if (!existing) {
+      return res.status(404).json({ error: 'Subplot not found' });
+    }
+
+    const updatedTargetSceneId = targetSceneId !== undefined ? (targetSceneId || null) : existing.target_scene_id;
+    const updatedUnresolvedHook = unresolvedHook !== undefined ? (unresolvedHook ? 1 : 0) : existing.unresolved_hook;
+
     await db.run(`
       UPDATE subplots
       SET title = COALESCE(?, title),
           category = COALESCE(?, category),
           status = COALESCE(?, status),
           summary = COALESCE(?, summary),
-          unresolved_hook = COALESCE(?, unresolved_hook),
+          unresolved_hook = ?,
           target_scene_id = ?
       WHERE id = ? AND project_id = ?
-    `, title, category, status, summary, unresolvedHook !== undefined ? (unresolvedHook ? 1 : 0) : null, targetSceneId || null, id, projectId);
+    `, title, category, status, summary, updatedUnresolvedHook, updatedTargetSceneId, id, projectId);
 
     const updated = await db.get(`
       SELECT s.*, o.title as target_scene_title

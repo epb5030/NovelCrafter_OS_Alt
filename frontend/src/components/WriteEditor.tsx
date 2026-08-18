@@ -570,6 +570,7 @@ export const WriteEditor: React.FC<WriteEditorProps> = ({ projectId, apiBase, ac
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            parent_id: activeScene.parent_id,
             title: activeScene.title,
             position: activeScene.position,
             summary: summaryText,

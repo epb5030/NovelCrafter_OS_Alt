@@ -94,12 +94,16 @@ export const CorkboardStudio: React.FC<CorkboardStudioProps> = ({
     const cardData = editingNotes[sceneId];
     if (!cardData) return;
 
+    const scene = scenes.find(s => s.id === sceneId);
+
     try {
       const metadataStr = JSON.stringify({ pov: cardData.pov, targetWords: cardData.targetWords });
       const res = await fetch(`${apiBase}/projects/${projectId}/outline/${sceneId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          parent_id: scene?.parent_id,
+          position: scene?.position,
           title: cardData.title,
           summary: cardData.summary,
           status: cardData.status,
@@ -130,6 +134,8 @@ export const CorkboardStudio: React.FC<CorkboardStudioProps> = ({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          parent_id: scene.parent_id,
+          position: scene.position,
           title: scene.title,
           summary: scene.summary,
           status: newStatus,

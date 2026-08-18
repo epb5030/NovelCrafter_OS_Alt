@@ -79,6 +79,51 @@ describe('Projects API (/api/projects)', () => {
     expect(res.body.genre).toBe('Epic Fantasy');
   });
 
+  it('should preserve parent_id and position when performing partial updates on outline elements', async () => {
+    const { app } = await import('../index');
+    
+    // Create test project
+    const projRes = await request(app).post('/api/projects').send({
+      title: 'Partial Update Test Project',
+      summary: 'Testing outline element partial update preservation'
+    });
+    const projId = projRes.body.id;
+
+    // Create chapter
+    const chapRes = await request(app).post(`/api/projects/${projId}/outline`).send({
+      type: 'chapter',
+      title: 'Chapter One',
+      position: 1
+    });
+    const chapId = chapRes.body.id;
+
+    // Create scene under chapter
+    const sceneRes = await request(app).post(`/api/projects/${projId}/outline`).send({
+      parent_id: chapId,
+      type: 'scene',
+      title: 'Initial Scene Title',
+      position: 5,
+      summary: 'Initial scene summary',
+      status: 'drafting'
+    });
+    const sceneId = sceneRes.body.id;
+
+    // Perform partial update with ONLY status change
+    const updateRes = await request(app).put(`/api/projects/${projId}/outline/${sceneId}`).send({
+      status: 'done'
+    });
+
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.status).toBe('done');
+    expect(updateRes.body.parent_id).toBe(chapId);
+    expect(updateRes.body.position).toBe(5);
+    expect(updateRes.body.title).toBe('Initial Scene Title');
+    expect(updateRes.body.summary).toBe('Initial scene summary');
+
+    // Clean up
+    await request(app).delete(`/api/projects/${projId}`);
+  });
+
   it('should delete the created project', async () => {
     const { app } = await import('../index');
     const res = await request(app).delete(`/api/projects/${createdProjectId}`);
